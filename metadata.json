@@ -1,0 +1,5 @@
+{
+  "name": "Event Certificate Portal",
+  "description": "A modern web application for managing and distributing event attendance certificates. Administrators can create events, design certificate templates, and upload participant lists. Participants can find and download their certificates in PDF format using their email address.",
+  "requestFramePermissions": []
+}
