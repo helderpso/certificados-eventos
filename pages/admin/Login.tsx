@@ -26,9 +26,15 @@ const Login: React.FC = () => {
             <div className="w-full max-w-md">
                 <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-8 transition-all duration-300 hover:shadow-2xl">
                     <div className="text-center mb-8">
-                        <div className="bg-brand-100 p-3 rounded-full w-fit mx-auto mb-4">
-                             <Lock className="h-8 w-8 text-brand-600" />
-                        </div>
+                        {state.appLogo ? (
+                            <div className="mb-6 flex justify-center">
+                                <img src={state.appLogo} alt="Logo" className="h-20 object-contain max-w-[200px]" />
+                            </div>
+                        ) : (
+                            <div className="bg-brand-100 p-3 rounded-full w-fit mx-auto mb-4">
+                                <Lock className="h-8 w-8 text-brand-600" />
+                            </div>
+                        )}
                         <h1 className="text-3xl font-bold text-gray-800 mt-2">Acesso Reservado</h1>
                         <p className="text-gray-500 mt-2">Faça login para gerir os eventos e certificados.</p>
                     </div>

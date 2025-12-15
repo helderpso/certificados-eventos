@@ -88,9 +88,17 @@ const CertificateFinder: React.FC = () => {
         <div className="min-h-screen bg-gradient-to-br from-brand-50 to-indigo-100 flex flex-col items-center justify-center p-4 font-sans">
             <div className="w-full max-w-4xl mx-auto">
                 <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-8 md:p-12 text-center transition-all duration-300 hover:shadow-2xl">
-                    <div className="bg-brand-100 p-4 rounded-full w-fit mx-auto mb-6">
-                        <Award className="h-10 w-10 text-brand-600" />
-                    </div>
+                    
+                    {state.appLogo ? (
+                        <div className="mb-8 flex justify-center">
+                            <img src={state.appLogo} alt="Logo" className="h-24 object-contain max-w-[250px]" />
+                        </div>
+                    ) : (
+                        <div className="bg-brand-100 p-4 rounded-full w-fit mx-auto mb-6">
+                            <Award className="h-10 w-10 text-brand-600" />
+                        </div>
+                    )}
+
                     <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mt-4">Portal de Certificados</h1>
                     <p className="text-gray-600 mt-2">Insira o seu e-mail para encontrar e descarregar os seus certificados de participação.</p>
                     

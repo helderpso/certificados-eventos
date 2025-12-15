@@ -12,6 +12,7 @@ interface AppState {
     templates: Template[];
     participants: Participant[];
     importHistory: ImportRecord[];
+    appLogo?: string; // Base64 string for the logo
 }
 
 type Action =
@@ -32,7 +33,8 @@ type Action =
     | { type: 'ADD_PARTICIPANTS'; payload: Participant[] }
     | { type: 'DELETE_PARTICIPANT'; payload: string }
     | { type: 'ADD_IMPORT_HISTORY'; payload: ImportRecord }
-    | { type: 'DELETE_IMPORT'; payload: string };
+    | { type: 'DELETE_IMPORT'; payload: string }
+    | { type: 'UPDATE_LOGO'; payload: string }; // Payload is base64 string or empty string
 
 
 const sampleTemplateBg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMTIzIiBoZWlnaHQ9Ijc5NCIgdmlld0JveD0iMCAwIDExMjMgNzk0Ij48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjdmYWZjIi8+PHJlY3QgeD0iMzAiIHk9IjMwIiB3aWR0aD0iMTA2MyIgaGVpZ2h0PSI3MzQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSI1Ii8+PHBhdGggZD0iTSA1MCw1MCBMIDE1MCw1MCBMIDE1MCwxNTAgTCA1MCwxNTAgWiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNDI5OWUxIiBzdHJva2Utd2lkdGg9IjIiIHRyYW5zZm9ybT0icm90YXRlKDQ1IDEwMCAxMDApIi8+PHBhdGggZD0iTSA5NzMsNTAgTCAxMDczLDUwIEwgMTA3MywxNTAgTCA5NzMsMTUwIFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSIyIiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAxMDIzIDEwMCkiLz48cGF0aCBkPSJNIDUwLDY0NCBMIDE1MCw2NDQgTCAxNTAsNzQ0IEwgNTAsNzQ0IFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSIyIiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAxMDAgNjk0KSIvPjxwYXRoIGQ9Ik0gOTczLDY0NCBMIDEwNzMsNjQ0IEwgMTA3Myw3NDQgTCA5NzMsNzQ0IFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSIyIiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAxMDIzIDY5NCkiLz48L3N2Zz4=';
@@ -142,7 +144,8 @@ const initialState: AppState = {
     ],
     importHistory: [
         { id: 'imp1', date: '2024-10-20T10:30:00Z', fileName: 'inscritos_v1.csv', count: 2, eventId: 'evt1', categoryName: 'Congressista', status: 'success' }
-    ]
+    ],
+    appLogo: ''
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -223,6 +226,11 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 ...state,
                 importHistory: [...state.importHistory].filter(h => h.id !== action.payload),
                 participants: [...state.participants].filter(p => p.importId !== action.payload)
+            };
+        case 'UPDATE_LOGO':
+            return {
+                ...state,
+                appLogo: action.payload
             };
         default:
             return state;
