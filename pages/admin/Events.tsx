@@ -5,15 +5,34 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { useAppContext } from '../../context/AppContext';
 import type { Event, Participant, Certificate, Template } from '../../types';
-import { Plus, Edit, Users, X, Upload, Download, FileText, User, Loader2, Award, AlertTriangle, ArrowUpDown, Search, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Plus, Edit, Users, X, Upload, Download, FileText, User, Loader2, Award, AlertTriangle, ArrowUpDown, Search, ChevronLeft, ChevronRight, Trash2, History, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
 import CertificatePreview from '../../components/CertificatePreview';
 
 const Events: React.FC = () => {
     const { state, dispatch } = useAppContext();
     const [isEventModalOpen, setIsEventModalOpen] = useState(false);
     const [isParticipantModalOpen, setIsParticipantModalOpen] = useState(false);
-    const [participantModalTab, setParticipantModalTab] = useState<'list' | 'import' | 'templates'>('list');
     
+    // Unified Delete Confirmation State
+    const [deleteConfig, setDeleteConfig] = useState<{
+        isOpen: boolean;
+        type: 'event' | 'participant' | 'import' | null;
+        id: string | null;
+        title: string;
+        message: string;
+    }>({
+        isOpen: false,
+        type: null,
+        id: null,
+        title: '',
+        message: ''
+    });
+
+    const [participantModalTab, setParticipantModalTab] = useState<'list' | 'import' | 'templates' | 'history'>('list');
+    
+    // Import Feedback State
+    const [importFeedback, setImportFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
     // Sorting State
     const [sortConfig, setSortConfig] = useState<{ key: 'name' | 'date'; direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
 
@@ -73,12 +92,25 @@ const Events: React.FC = () => {
         return participants.sort((a, b) => a.name.localeCompare(b.name));
     }, [state.participants, selectedEventForParticipants, searchTerm]);
 
+    const filteredImportHistory = useMemo(() => {
+        if (!selectedEventForParticipants) return [];
+        return state.importHistory.filter(h => h.eventId === selectedEventForParticipants.id);
+    }, [state.importHistory, selectedEventForParticipants]);
+
+    const totalPages = Math.ceil(filteredParticipants.length / itemsPerPage);
+
+    // Adjust current page if it exceeds total pages (e.g., after deletion)
+    useEffect(() => {
+        if (currentPage > totalPages && totalPages > 0) {
+            setCurrentPage(totalPages);
+        }
+    }, [totalPages, currentPage]);
+
     const paginatedParticipants = useMemo(() => {
         const startIndex = (currentPage - 1) * itemsPerPage;
         return filteredParticipants.slice(startIndex, startIndex + itemsPerPage);
     }, [filteredParticipants, currentPage]);
 
-    const totalPages = Math.ceil(filteredParticipants.length / itemsPerPage);
 
     const openEventModal = (event: Event | null) => {
         setCurrentEvent(event);
@@ -104,10 +136,54 @@ const Events: React.FC = () => {
         closeEventModal();
     };
 
-    const handleDeleteEvent = (eventId: string) => {
-        if (window.confirm('Tem a certeza que quer apagar este evento?')) {
-            dispatch({ type: 'DELETE_EVENT', payload: eventId });
+    // Generic Delete Handlers
+    const closeDeleteModal = () => {
+        setDeleteConfig({ ...deleteConfig, isOpen: false, id: null, type: null });
+    };
+
+    const confirmDeleteAction = () => {
+        const { type, id } = deleteConfig;
+        if (!id || !type) return;
+
+        if (type === 'event') {
+            dispatch({ type: 'DELETE_EVENT', payload: id });
+        } else if (type === 'participant') {
+             dispatch({ type: 'DELETE_PARTICIPANT', payload: id });
+        } else if (type === 'import') {
+            dispatch({ type: 'DELETE_IMPORT', payload: id });
         }
+
+        closeDeleteModal();
+    };
+
+    const requestDeleteEvent = (eventId: string) => {
+        setDeleteConfig({
+            isOpen: true,
+            type: 'event',
+            id: eventId,
+            title: 'Apagar Evento',
+            message: 'Tem a certeza que quer apagar este evento? Esta ação removerá também todos os participantes associados e não pode ser desfeita.'
+        });
+    };
+    
+    const requestDeleteParticipant = (participantId: string) => {
+        setDeleteConfig({
+            isOpen: true,
+            type: 'participant',
+            id: participantId,
+            title: 'Remover Participante',
+            message: 'Tem a certeza que quer remover este participante? Esta ação é irreversível.'
+        });
+    };
+
+    const requestDeleteImport = (importId: string) => {
+         setDeleteConfig({
+            isOpen: true,
+            type: 'import',
+            id: importId,
+            title: 'Apagar Importação',
+            message: 'Tem a certeza que quer apagar este registo de importação? \n\nAVISO: Isto irá remover também todos os participantes que foram adicionados nesta importação.'
+        });
     };
     
     const openParticipantModal = (event: Event) => {
@@ -115,6 +191,7 @@ const Events: React.FC = () => {
         setParticipantModalTab('list'); // Default to list view
         setSearchTerm('');
         setCurrentPage(1);
+        setImportFeedback(null);
         setIsParticipantModalOpen(true);
     }
     
@@ -124,13 +201,18 @@ const Events: React.FC = () => {
         setCsvFile(null);
         setSelectedCategory('');
         setSearchTerm('');
+        setImportFeedback(null);
     }
     
     const handleParticipantUpload = () => {
+        setImportFeedback(null);
+
         if (!csvFile || !selectedCategory || !selectedEventForParticipants) {
-             alert('Por favor selecione um ficheiro CSV e uma categoria.');
+             setImportFeedback({ type: 'error', message: 'Por favor selecione um ficheiro CSV e uma categoria.' });
              return;
         }
+
+        const categoryName = state.categories.find(c => c.id === selectedCategory)?.name || 'Desconhecida';
 
         Papa.parse(csvFile, {
             header: true,
@@ -139,7 +221,7 @@ const Events: React.FC = () => {
                 // Validation Logic
                 const headers = results.meta.fields;
                 if (!headers) {
-                    alert('Erro: Não foi possível ler os cabeçalhos do ficheiro CSV.');
+                    setImportFeedback({ type: 'error', message: 'Erro: Não foi possível ler os cabeçalhos do ficheiro CSV. Verifique se o ficheiro não está corrompido.' });
                     return;
                 }
 
@@ -147,9 +229,15 @@ const Events: React.FC = () => {
                 const missingColumns = requiredColumns.filter(col => !headers.includes(col));
 
                 if (missingColumns.length > 0) {
-                    alert(`Erro de Validação: O ficheiro CSV deve conter as colunas: ${missingColumns.join(', ')}.\n\nColunas encontradas: ${headers.join(', ')}`);
+                    setImportFeedback({ 
+                        type: 'error', 
+                        message: `O ficheiro CSV está incompleto. Faltam as seguintes colunas obrigatórias: ${missingColumns.join(', ')}.\n\nColunas detetadas: ${headers.join(', ')}` 
+                    });
                     return;
                 }
+
+                // Generate a unique ID for this import batch
+                const importId = `imp${Date.now()}`;
 
                 const newParticipants: Participant[] = results.data
                 .map((row: any) => ({
@@ -158,22 +246,43 @@ const Events: React.FC = () => {
                     email: row.email,
                     eventId: selectedEventForParticipants.id,
                     categoryId: selectedCategory,
+                    importId: importId // Link participant to this specific import
                 }))
                 .filter(p => p.name && p.email);
                 
                 if (newParticipants.length === 0) {
-                    alert('Aviso: Nenhum participante válido encontrado. Verifique se os dados estão preenchidos corretamente.');
+                    setImportFeedback({ type: 'error', message: 'Não foram encontrados dados válidos. Verifique se as linhas contêm "name" e "email" preenchidos.' });
                     return;
                 }
 
+                // Add Participants
                 dispatch({ type: 'ADD_PARTICIPANTS', payload: newParticipants });
-                alert(`${newParticipants.length} participantes adicionados com sucesso!`);
-                setParticipantModalTab('list'); // Switch to list view to show results
+
+                // Add History Record
+                dispatch({
+                    type: 'ADD_IMPORT_HISTORY',
+                    payload: {
+                        id: importId,
+                        date: new Date().toISOString(),
+                        fileName: csvFile.name,
+                        count: newParticipants.length,
+                        eventId: selectedEventForParticipants.id,
+                        categoryName: categoryName,
+                        status: 'success'
+                    }
+                });
+
+                setParticipantModalTab('history'); // Switch to history view to show result
+                // We set feedback AFTER switching tab so it renders in the history tab (if we add logic there) or we reuse the alert logic.
+                // For now, let's reuse the state but maybe display it better.
+                // Or simply:
+                setImportFeedback({ type: 'success', message: `${newParticipants.length} participantes importados com sucesso!` });
+
                 setCsvFile(null);
-                setSearchTerm(''); // Clear search to show new items
+                setSearchTerm(''); 
             },
             error: (error: any) => {
-                alert(`Erro ao processar o ficheiro CSV: ${error.message}`);
+                setImportFeedback({ type: 'error', message: `Erro técnico ao processar o ficheiro CSV: ${error.message}` });
             }
         });
     };
@@ -218,7 +327,7 @@ const Events: React.FC = () => {
                 pdf.save(`Certificado_${selectedEventForParticipants.name.replace(/ /g, '_')}_${participant.name.replace(/ /g, '_')}.pdf`);
             } catch (error) {
                 console.error("Error generating PDF", error);
-                alert("Ocorreu um erro ao gerar o PDF.");
+                setImportFeedback({ type: 'error', message: "Ocorreu um erro ao gerar o PDF." });
             } finally {
                 setDownloadingId(null);
                 setTempCertForDownload(null);
@@ -259,6 +368,26 @@ const Events: React.FC = () => {
         document.body.removeChild(link);
     }
 
+    const handleExportCSV = () => {
+        if (!selectedEventForParticipants) return;
+
+        const data = filteredParticipants.map(p => ({
+            Nome: p.name,
+            Email: p.email,
+            Categoria: state.categories.find(c => c.id === p.categoryId)?.name || 'N/A'
+        }));
+
+        const csv = Papa.unparse(data);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `participantes_${selectedEventForParticipants.name.replace(/\s+/g, '_')}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
     return (
         <div>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
@@ -293,12 +422,21 @@ const Events: React.FC = () => {
 
             <div className="bg-white rounded-lg shadow overflow-hidden">
                 <ul className="divide-y divide-gray-200">
-                    {sortedEvents.map(event => (
+                    {sortedEvents.map(event => {
+                        const participantCount = state.participants.filter(p => p.eventId === event.id).length;
+
+                        return (
                         <li key={event.id} className="p-4 sm:p-6 hover:bg-gray-50 transition">
                              <div className="flex items-center justify-between flex-wrap">
                                 <div>
                                     <p className="text-lg font-semibold text-gray-900">{event.name}</p>
-                                    <p className="text-sm text-gray-500">{new Date(event.date).toLocaleDateString()}</p>
+                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
+                                        <p className="text-sm text-gray-500">{new Date(event.date).toLocaleDateString()}</p>
+                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-50 text-brand-700">
+                                            <Users className="w-3 h-3 mr-1" />
+                                            {participantCount} {participantCount === 1 ? 'participante' : 'participantes'}
+                                        </span>
+                                    </div>
                                 </div>
                                 <div className="flex items-center space-x-2 mt-2 sm:mt-0">
                                     <button onClick={() => openParticipantModal(event)} className="flex items-center px-3 py-2 text-sm text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-lg transition border border-gray-200">
@@ -308,16 +446,51 @@ const Events: React.FC = () => {
                                     <button onClick={() => openEventModal(event)} className="p-2 text-gray-500 hover:text-brand-600 hover:bg-brand-100 rounded-full transition">
                                         <Edit className="h-5 w-5" />
                                     </button>
-                                    <button onClick={() => handleDeleteEvent(event.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full transition">
+                                    <button onClick={() => requestDeleteEvent(event.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full transition">
                                         <Trash2 className="h-5 w-5" />
                                     </button>
                                 </div>
                              </div>
                         </li>
-                    ))}
+                    )})}
                 </ul>
             </div>
             
+            {/* Unified Delete Confirmation Modal */}
+            {deleteConfig.isOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 backdrop-blur-sm animate-fadeIn" onClick={(e) => e.stopPropagation()}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
+                        <div className="p-6">
+                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mx-auto mb-4">
+                                <AlertTriangle className="h-6 w-6 text-red-600" />
+                            </div>
+                            <div className="text-center">
+                                <h3 className="text-lg font-bold text-gray-900">{deleteConfig.title}</h3>
+                                <p className="mt-2 text-sm text-gray-500 whitespace-pre-line">
+                                    {deleteConfig.message}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="bg-gray-50 px-6 py-4 flex flex-row-reverse gap-3">
+                            <button
+                                type="button"
+                                onClick={confirmDeleteAction}
+                                className="inline-flex w-full justify-center rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:w-auto"
+                            >
+                                Apagar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={closeDeleteModal}
+                                className="inline-flex w-full justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:w-auto"
+                            >
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Event Modal */}
             {isEventModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -357,45 +530,108 @@ const Events: React.FC = () => {
                         </div>
 
                         {/* Tabs */}
-                        <div className="flex border-b border-gray-200">
+                        <div className="flex border-b border-gray-200 overflow-x-auto">
                             <button
-                                className={`flex-1 py-3 text-sm font-medium text-center border-b-2 ${participantModalTab === 'list' ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                                onClick={() => setParticipantModalTab('list')}
+                                className={`flex-1 py-3 px-4 text-sm font-medium text-center border-b-2 whitespace-nowrap ${participantModalTab === 'list' ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                                onClick={() => {
+                                    setParticipantModalTab('list');
+                                    setImportFeedback(null);
+                                }}
                             >
                                 <Users className="inline-block h-4 w-4 mr-1 mb-1" />
                                 Participantes
                             </button>
                             <button
-                                className={`flex-1 py-3 text-sm font-medium text-center border-b-2 ${participantModalTab === 'templates' ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                                onClick={() => setParticipantModalTab('templates')}
+                                className={`flex-1 py-3 px-4 text-sm font-medium text-center border-b-2 whitespace-nowrap ${participantModalTab === 'templates' ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                                onClick={() => {
+                                    setParticipantModalTab('templates');
+                                    setImportFeedback(null);
+                                }}
                             >
                                 <Award className="inline-block h-4 w-4 mr-1 mb-1" />
                                 Certificados
                             </button>
                             <button
-                                className={`flex-1 py-3 text-sm font-medium text-center border-b-2 ${participantModalTab === 'import' ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                                onClick={() => setParticipantModalTab('import')}
+                                className={`flex-1 py-3 px-4 text-sm font-medium text-center border-b-2 whitespace-nowrap ${participantModalTab === 'import' ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                                onClick={() => {
+                                    setParticipantModalTab('import');
+                                    setImportFeedback(null);
+                                }}
                             >
                                 <Upload className="inline-block h-4 w-4 mr-1 mb-1" />
                                 Importar CSV
                             </button>
+                            <button
+                                className={`flex-1 py-3 px-4 text-sm font-medium text-center border-b-2 whitespace-nowrap ${participantModalTab === 'history' ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                                onClick={() => {
+                                    setParticipantModalTab('history');
+                                    setImportFeedback(null);
+                                }}
+                            >
+                                <History className="inline-block h-4 w-4 mr-1 mb-1" />
+                                Histórico
+                            </button>
                         </div>
 
                         <div className="p-6 overflow-y-auto flex-1">
+                             {/* Feedback Banner (Visible in all tabs if active) */}
+                             {importFeedback && (
+                                <div className={`rounded-md p-4 mb-6 flex items-start ${importFeedback.type === 'error' ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
+                                    <div className="flex-shrink-0">
+                                        {importFeedback.type === 'error' ? (
+                                            <AlertTriangle className="h-5 w-5 text-red-400" aria-hidden="true" />
+                                        ) : (
+                                            <CheckCircle2 className="h-5 w-5 text-green-400" aria-hidden="true" />
+                                        )}
+                                    </div>
+                                    <div className="ml-3">
+                                        <h3 className={`text-sm font-medium ${importFeedback.type === 'error' ? 'text-red-800' : 'text-green-800'}`}>
+                                            {importFeedback.type === 'error' ? 'Atenção' : 'Sucesso'}
+                                        </h3>
+                                        <div className={`mt-2 text-sm ${importFeedback.type === 'error' ? 'text-red-700' : 'text-green-700'}`}>
+                                            <p className="whitespace-pre-line">{importFeedback.message}</p>
+                                        </div>
+                                    </div>
+                                    <div className="ml-auto pl-3">
+                                            <div className="-mx-1.5 -my-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => setImportFeedback(null)}
+                                                className={`inline-flex rounded-md p-1.5 focus:outline-none focus:ring-2 focus:ring-offset-2 ${importFeedback.type === 'error' ? 'bg-red-50 text-red-500 hover:bg-red-100 focus:ring-red-600' : 'bg-green-50 text-green-500 hover:bg-green-100 focus:ring-green-600'}`}
+                                            >
+                                                <span className="sr-only">Fechar</span>
+                                                <X className="h-5 w-5" aria-hidden="true" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {participantModalTab === 'list' && (
                                 <div className="flex flex-col h-full">
-                                    {/* Search Bar */}
-                                    <div className="mb-4 relative">
-                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                            <Search className="h-5 w-5 text-gray-400" />
+                                    {/* Toolbar */}
+                                    <div className="mb-4 flex flex-col sm:flex-row gap-3 justify-between items-center">
+                                        <div className="relative flex-1 w-full">
+                                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                                <Search className="h-5 w-5 text-gray-400" />
+                                            </div>
+                                            <input
+                                                type="text"
+                                                placeholder="Pesquisar por nome ou email..."
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-brand-500 focus:border-brand-500 sm:text-sm"
+                                            />
                                         </div>
-                                        <input
-                                            type="text"
-                                            placeholder="Pesquisar por nome ou email..."
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-brand-500 focus:border-brand-500 sm:text-sm"
-                                        />
+                                         <button
+                                            type="button"
+                                            onClick={handleExportCSV}
+                                            disabled={filteredParticipants.length === 0}
+                                            className="flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                                        >
+                                            <Download className="h-4 w-4 mr-2" />
+                                            Exportar CSV
+                                        </button>
                                     </div>
 
                                     {filteredParticipants.length > 0 ? (
@@ -441,6 +677,7 @@ const Events: React.FC = () => {
                                                                     </td>
                                                                     <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
                                                                         <button
+                                                                            type="button"
                                                                             onClick={() => template && handleDownloadCertificate(p, template)}
                                                                             disabled={!template || isDownloading}
                                                                             className={`inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 ${
@@ -459,6 +696,17 @@ const Events: React.FC = () => {
                                                                                 </>
                                                                             )}
                                                                         </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                requestDeleteParticipant(p.id);
+                                                                            }}
+                                                                            className="ml-2 inline-flex items-center px-2 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-red-600 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                                                                            title="Remover Participante"
+                                                                        >
+                                                                            <Trash2 className="h-4 w-4" />
+                                                                        </button>
                                                                     </td>
                                                                 </tr>
                                                             );
@@ -471,6 +719,7 @@ const Events: React.FC = () => {
                                             <div className="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6 mt-4">
                                                 <div className="flex flex-1 justify-between sm:hidden">
                                                     <button
+                                                        type="button"
                                                         onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                                                         disabled={currentPage === 1}
                                                         className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
@@ -478,6 +727,7 @@ const Events: React.FC = () => {
                                                         Anterior
                                                     </button>
                                                     <button
+                                                        type="button"
                                                         onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                                                         disabled={currentPage === totalPages}
                                                         className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
@@ -494,6 +744,7 @@ const Events: React.FC = () => {
                                                     <div>
                                                         <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
                                                             <button
+                                                                type="button"
                                                                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                                                                 disabled={currentPage === 1}
                                                                 className="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:bg-gray-100"
@@ -508,6 +759,7 @@ const Events: React.FC = () => {
                                                             </span>
 
                                                             <button
+                                                                type="button"
                                                                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                                                                 disabled={currentPage === totalPages}
                                                                 className="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:bg-gray-100"
@@ -606,6 +858,8 @@ const Events: React.FC = () => {
 
                             {participantModalTab === 'import' && (
                                 <div className="space-y-6 max-w-lg mx-auto">
+                                    {/* Feedback is now rendered at the top of the tab container, but we keep this here if no global feedback exists, or simply remove if global covers it */}
+                                    
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Passo 1: Descarregar o modelo CSV</label>
                                         <button onClick={downloadCsvTemplate} className="w-full flex items-center justify-center bg-gray-600 text-white px-4 py-2 rounded-lg shadow hover:bg-gray-700 transition text-sm">
@@ -644,6 +898,77 @@ const Events: React.FC = () => {
                                             Processar Importação
                                         </button>
                                     </div>
+                                </div>
+                            )}
+
+                            {participantModalTab === 'history' && (
+                                <div className="space-y-6">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h4 className="text-lg font-medium text-gray-800">Histórico de Importações</h4>
+                                    </div>
+                                    
+                                    {filteredImportHistory.length > 0 ? (
+                                        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                            <table className="min-w-full divide-y divide-gray-200">
+                                                <thead className="bg-gray-50">
+                                                    <tr>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ficheiro</th>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoria</th>
+                                                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Qtd.</th>
+                                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="bg-white divide-y divide-gray-200">
+                                                    {filteredImportHistory.map(record => (
+                                                        <tr key={record.id}>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                {new Date(record.date).toLocaleString()}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center">
+                                                                <FileSpreadsheet className="h-4 w-4 mr-2 text-green-600" />
+                                                                {record.fileName}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-brand-100 text-brand-800">
+                                                                    {record.categoryName}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-gray-700 font-semibold">
+                                                                {record.count}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                                    <CheckCircle2 className="w-3 h-3 mr-1" />
+                                                                    Sucesso
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        requestDeleteImport(record.id);
+                                                                    }}
+                                                                    className="inline-flex items-center px-2 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-red-600 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                                                                    title="Eliminar importação e participantes"
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-10 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+                                            <History className="mx-auto h-12 w-12 text-gray-300" />
+                                            <h3 className="mt-2 text-sm font-medium text-gray-900">Sem histórico</h3>
+                                            <p className="mt-1 text-sm text-gray-500">Ainda não foram realizadas importações para este evento.</p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

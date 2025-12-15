@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import type { Category, Template } from '../../types';
-import { Plus, Edit, Trash2, X, Eye, CheckCircle } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Eye, CheckCircle, AlertTriangle } from 'lucide-react';
 import CertificatePreview from '../../components/CertificatePreview';
 import RichTextEditor from '../../components/RichTextEditor';
 
@@ -25,6 +25,22 @@ const Templates: React.FC = () => {
     const [templateText, setTemplateText] = useState('<div style="text-align: center;"><font size="5">Certificamos que</font></div><div style="text-align: center;"><font size="7"><b>{{PARTICIPANT_NAME}}</b></font></div><div style="text-align: center;"><font size="4">participou com distinção no evento {{EVENT_NAME}} realizado em {{DATE}}.</font></div>');
 
     const [successMessage, setSuccessMessage] = useState('');
+    const [errorMessage, setErrorMessage] = useState('');
+
+    // Delete Modal State
+    const [deleteConfig, setDeleteConfig] = useState<{
+        isOpen: boolean;
+        type: 'category' | 'template' | null;
+        id: string | null;
+        title: string;
+        message: string;
+    }>({
+        isOpen: false,
+        type: null,
+        id: null,
+        title: '',
+        message: ''
+    });
 
     const AVAILABLE_VARIABLES = ['{{PARTICIPANT_NAME}}', '{{EVENT_NAME}}', '{{DATE}}'];
 
@@ -51,12 +67,6 @@ const Templates: React.FC = () => {
         closeCategoryModal();
     };
 
-    const deleteCategory = (id: string) => {
-        if (window.confirm('Tem a certeza que quer apagar esta categoria?')) {
-            dispatch({ type: 'DELETE_CATEGORY', payload: id });
-        }
-    }
-
     // Template Handlers
     const openTemplateModal = (template: Template | null) => {
         setCurrentTemplate(template);
@@ -75,6 +85,7 @@ const Templates: React.FC = () => {
     const closeTemplateModal = () => {
         setIsTemplateModalOpen(false);
         setCurrentTemplate(null);
+        setErrorMessage('');
     }
     
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,8 +101,10 @@ const Templates: React.FC = () => {
     
     const handleTemplateSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        setErrorMessage('');
+        
         if(!templateCategory || !templateImage) {
-            alert("Por favor, selecione uma categoria e uma imagem de fundo.");
+            setErrorMessage("Por favor, selecione uma categoria e uma imagem de fundo.");
             return;
         }
 
@@ -113,16 +126,48 @@ const Templates: React.FC = () => {
         setTimeout(() => setSuccessMessage(''), 3000);
     }
 
-    const deleteTemplate = (id: string) => {
-        if (window.confirm('Tem a certeza que quer apagar este modelo?')) {
-            dispatch({ type: 'DELETE_TEMPLATE', payload: id });
-        }
-    }
-
     const openPreview = (template: Template) => {
         setTemplateToPreview(template);
         setIsPreviewModalOpen(true);
     }
+
+    // Delete Handlers
+    const requestDeleteCategory = (id: string) => {
+         setDeleteConfig({
+            isOpen: true,
+            type: 'category',
+            id,
+            title: 'Apagar Categoria',
+            message: 'Tem a certeza que quer apagar esta categoria? Esta ação pode afetar modelos associados.'
+        });
+    }
+
+    const requestDeleteTemplate = (id: string) => {
+        setDeleteConfig({
+            isOpen: true,
+            type: 'template',
+            id,
+            title: 'Apagar Modelo',
+            message: 'Tem a certeza que quer apagar este modelo de certificado?'
+        });
+    }
+
+    const closeDeleteModal = () => {
+        setDeleteConfig({ ...deleteConfig, isOpen: false, id: null, type: null });
+    };
+
+    const confirmDeleteAction = () => {
+        const { type, id } = deleteConfig;
+        if (!id || !type) return;
+
+        if (type === 'category') {
+             dispatch({ type: 'DELETE_CATEGORY', payload: id });
+        } else if (type === 'template') {
+             dispatch({ type: 'DELETE_TEMPLATE', payload: id });
+        }
+
+        closeDeleteModal();
+    };
 
     return (
         <div>
@@ -140,7 +185,7 @@ const Templates: React.FC = () => {
                             <span>{cat.name}</span>
                             <div className="space-x-2">
                                 <button onClick={() => openCategoryModal(cat)} className="p-2 text-gray-500 hover:text-brand-600"><Edit size={18} /></button>
-                                <button onClick={() => deleteCategory(cat.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={18} /></button>
+                                <button onClick={() => requestDeleteCategory(cat.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={18} /></button>
                             </div>
                         </li>
                     ))}
@@ -173,12 +218,47 @@ const Templates: React.FC = () => {
                             <div className="space-x-2">
                                 <button onClick={() => openPreview(tpl)} className="p-2 text-gray-500 hover:text-indigo-600"><Eye size={18} /></button>
                                 <button onClick={() => openTemplateModal(tpl)} className="p-2 text-gray-500 hover:text-brand-600"><Edit size={18} /></button>
-                                <button onClick={() => deleteTemplate(tpl.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={18} /></button>
+                                <button onClick={() => requestDeleteTemplate(tpl.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={18} /></button>
                             </div>
                         </li>
                     ))}
                 </ul>
             </div>
+            
+             {/* Delete Confirmation Modal */}
+             {deleteConfig.isOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 backdrop-blur-sm animate-fadeIn" onClick={(e) => e.stopPropagation()}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
+                        <div className="p-6">
+                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mx-auto mb-4">
+                                <AlertTriangle className="h-6 w-6 text-red-600" />
+                            </div>
+                            <div className="text-center">
+                                <h3 className="text-lg font-bold text-gray-900">{deleteConfig.title}</h3>
+                                <p className="mt-2 text-sm text-gray-500 whitespace-pre-line">
+                                    {deleteConfig.message}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="bg-gray-50 px-6 py-4 flex flex-row-reverse gap-3">
+                            <button
+                                type="button"
+                                onClick={confirmDeleteAction}
+                                className="inline-flex w-full justify-center rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:w-auto"
+                            >
+                                Apagar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={closeDeleteModal}
+                                className="inline-flex w-full justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:w-auto"
+                            >
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Category Modal */}
             {isCategoryModalOpen && (
@@ -211,6 +291,14 @@ const Templates: React.FC = () => {
                            <button onClick={closeTemplateModal}><X className="h-6 w-6 text-gray-500" /></button>
                         </div>
                         <form onSubmit={handleTemplateSubmit} className="p-6 space-y-6 max-h-[85vh] overflow-y-auto">
+                            
+                            {errorMessage && (
+                                <div className="p-3 bg-red-100 border border-red-200 text-red-600 rounded-lg text-sm flex items-center">
+                                    <AlertTriangle className="h-4 w-4 mr-2" />
+                                    {errorMessage}
+                                </div>
+                            )}
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Nome do Modelo</label>

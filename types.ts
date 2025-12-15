@@ -24,6 +24,7 @@ export interface Participant {
     email: string;
     eventId: string;
     categoryId: string;
+    importId?: string; // Links this participant to a specific batch import
 }
 
 export interface Certificate {
@@ -36,6 +37,16 @@ export interface User {
     name: string;
     email: string;
     password: string; // In a real app, this would be hashed/handled by backend
+}
+
+export interface ImportRecord {
+    id: string;
+    date: string;
+    fileName: string;
+    count: number;
+    eventId: string;
+    categoryName: string;
+    status: 'success' | 'partial' | 'error';
 }
 
 export type ThemeId = 'blue' | 'green' | 'purple' | 'custom';

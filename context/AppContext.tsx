@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useReducer, ReactNode, Dispatch } from 'react';
-import type { Event, Category, Template, Participant, User, ThemeId, ThemeConfig } from '../types';
+import type { Event, Category, Template, Participant, User, ThemeId, ThemeConfig, ImportRecord } from '../types';
 
 interface AppState {
     isAuthenticated: boolean;
@@ -11,6 +11,7 @@ interface AppState {
     categories: Category[];
     templates: Template[];
     participants: Participant[];
+    importHistory: ImportRecord[];
 }
 
 type Action =
@@ -28,7 +29,10 @@ type Action =
     | { type: 'ADD_TEMPLATE'; payload: Template }
     | { type: 'UPDATE_TEMPLATE'; payload: Template }
     | { type: 'DELETE_TEMPLATE'; payload: string }
-    | { type: 'ADD_PARTICIPANTS'; payload: Participant[] };
+    | { type: 'ADD_PARTICIPANTS'; payload: Participant[] }
+    | { type: 'DELETE_PARTICIPANT'; payload: string }
+    | { type: 'ADD_IMPORT_HISTORY'; payload: ImportRecord }
+    | { type: 'DELETE_IMPORT'; payload: string };
 
 
 const sampleTemplateBg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMTIzIiBoZWlnaHQ9Ijc5NCIgdmlld0JveD0iMCAwIDExMjMgNzk0Ij48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjdmYWZjIi8+PHJlY3QgeD0iMzAiIHk9IjMwIiB3aWR0aD0iMTA2MyIgaGVpZ2h0PSI3MzQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSI1Ii8+PHBhdGggZD0iTSA1MCw1MCBMIDE1MCw1MCBMIDE1MCwxNTAgTCA1MCwxNTAgWiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNDI5OWUxIiBzdHJva2Utd2lkdGg9IjIiIHRyYW5zZm9ybT0icm90YXRlKDQ1IDEwMCAxMDApIi8+PHBhdGggZD0iTSA5NzMsNTAgTCAxMDczLDUwIEwgMTA3MywxNTAgTCA5NzMsMTUwIFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSIyIiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAxMDIzIDEwMCkiLz48cGF0aCBkPSJNIDUwLDY0NCBMIDE1MCw2NDQgTCAxNTAsNzQ0IEwgNTAsNzQ0IFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSIyIiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAxMDAgNjk0KSIvPjxwYXRoIGQ9Ik0gOTczLDY0NCBMIDEwNzMsNjQ0IEwgMTA3Myw3NDQgTCA5NzMsNzQ0IFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSIyIiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAxMDIzIDY5NCkiLz48L3N2Zz4=';
@@ -132,10 +136,13 @@ const initialState: AppState = {
         }
     ],
     participants: [
-        { id: 'par1', name: 'João Silva', email: 'joao.silva@email.com', eventId: 'evt1', categoryId: 'cat1' },
-        { id: 'par2', name: 'Maria Pereira', email: 'maria.p@email.com', eventId: 'evt1', categoryId: 'cat3' },
+        { id: 'par1', name: 'João Silva', email: 'joao.silva@email.com', eventId: 'evt1', categoryId: 'cat1', importId: 'imp1' },
+        { id: 'par2', name: 'Maria Pereira', email: 'maria.p@email.com', eventId: 'evt1', categoryId: 'cat3', importId: 'imp1' },
         { id: 'par3', name: 'João Silva', email: 'joao.silva@email.com', eventId: 'evt2', categoryId: 'cat2' },
     ],
+    importHistory: [
+        { id: 'imp1', date: '2024-10-20T10:30:00Z', fileName: 'inscritos_v1.csv', count: 2, eventId: 'evt1', categoryName: 'Congressista', status: 'success' }
+    ]
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -170,7 +177,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return {
                 ...state,
                 events: state.events.filter(e => e.id !== action.payload),
-                // Also remove participants associated with this event to keep data clean
                 participants: state.participants.filter(p => p.eventId !== action.payload),
             };
         case 'ADD_CATEGORY':
@@ -201,6 +207,22 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return {
                 ...state,
                 participants: [...state.participants, ...action.payload],
+            };
+        case 'DELETE_PARTICIPANT':
+            return {
+                ...state,
+                participants: [...state.participants].filter(p => p.id !== action.payload),
+            };
+        case 'ADD_IMPORT_HISTORY':
+            return {
+                ...state,
+                importHistory: [action.payload, ...state.importHistory]
+            };
+        case 'DELETE_IMPORT':
+            return {
+                ...state,
+                importHistory: [...state.importHistory].filter(h => h.id !== action.payload),
+                participants: [...state.participants].filter(p => p.importId !== action.payload)
             };
         default:
             return state;
