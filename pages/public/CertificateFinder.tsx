@@ -2,7 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { Download, Loader2, Search, Award, AlertCircle } from 'lucide-react';
+import { Download, Loader2, Search, Award, AlertCircle, Lock } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import type { Certificate } from '../../types';
 import CertificatePreview from '../../components/CertificatePreview';
@@ -18,189 +18,154 @@ const CertificateFinder: React.FC = () => {
     
     const previewRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
-    const validateEmail = (email: string) => {
-        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return re.test(email);
-    };
-
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        
-        if (!validateEmail(email)) {
-            setError('Por favor, insira um endereço de e-mail válido.');
+        const trimmedEmail = email.trim().toLowerCase();
+        if (!trimmedEmail.includes('@')) {
+            setError('Por favor, introduza um e-mail válido.');
             return;
         }
-
         setError(null);
         setIsLoading(true);
         setSearched(true);
         
         setTimeout(() => {
-            const participantCerts = state.participants
-                .filter(p => p.email.toLowerCase() === email.toLowerCase())
+            const certs = state.participants
+                .filter(p => p.email.toLowerCase() === trimmedEmail)
                 .map(participant => {
                     const event = state.events.find(e => e.id === participant.eventId);
                     const template = state.templates.find(t => t.categoryId === participant.categoryId);
-                    if (event && template) {
-                        return { participant, event, template };
-                    }
+                    if (event && template) return { participant, event, template };
                     return null;
                 })
                 .filter((c): c is Certificate => c !== null);
-
-            setFoundCertificates(participantCerts);
+            setFoundCertificates(certs);
             setIsLoading(false);
-        }, 1000);
+        }, 600);
     };
 
     const handleDownload = async (cert: Certificate) => {
         const key = `${cert.participant.id}-${cert.event.id}`;
-        const certificateElement = previewRefs.current[key];
-        if (!certificateElement) return;
+        const element = previewRefs.current[key];
+        if (!element) return;
 
         setIsDownloading(key);
-
-        // Wait a bit to ensure it's rendered
         setTimeout(async () => {
             try {
-                // Scale 2 is enough for clear text and background without massive file size
-                const canvas = await html2canvas(certificateElement, {
-                    scale: 2,
+                const imgElement = element.querySelector('img');
+                if (imgElement) {
+                    await imgElement.decode().catch(() => {});
+                }
+
+                // ESCALA OTIMIZADA: 3.5x (~4000px)
+                const canvas = await html2canvas(element, {
+                    scale: 3.5, 
                     useCORS: true,
-                    logging: false,
-                    allowTaint: true,
-                    backgroundColor: null
+                    backgroundColor: '#ffffff',
+                    imageTimeout: 0,
+                    logging: false
                 });
 
-                // JPEG 0.75 is the sweet spot for size/quality
-                const imgData = canvas.toDataURL('image/jpeg', 0.75);
+                // JPEG 0.95 para redução drástica de peso (ex: de 40MB para 5MB)
+                const imgData = canvas.toDataURL('image/jpeg', 0.95);
                 
                 const pdf = new jsPDF({
                     orientation: 'landscape',
                     unit: 'px',
-                    format: [canvas.width, canvas.height]
+                    format: [canvas.width, canvas.height],
+                    compress: true // Ativar compressão interna do PDF
                 });
 
                 pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height, undefined, 'FAST');
-                pdf.save(`Certificado_${cert.event.name.replace(/ /g, '_')}_${cert.participant.name.replace(/ /g, '_')}.pdf`);
+                pdf.save(`Certificado_${cert.event.name.replace(/\s/g, '_')}_${cert.participant.name.replace(/\s/g, '_')}.pdf`);
             } catch (err) {
-                console.error("Erro ao gerar PDF:", err);
-                alert("Erro ao processar o certificado. Tente novamente.");
+                console.error(err);
+                alert("Ocorreu um erro ao gerar o seu certificado otimizado.");
             } finally {
                 setIsDownloading(null);
             }
-        }, 300);
+        }, 1200);
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-brand-50 to-indigo-100 flex flex-col items-center justify-center p-4 font-sans">
-            <div className="w-full max-w-4xl mx-auto">
-                <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-8 md:p-12 text-center transition-all duration-300 hover:shadow-2xl">
+        <div className="min-h-screen bg-gradient-to-br from-brand-50 to-indigo-100 flex flex-col items-center justify-between p-4 font-sans">
+            <div className="w-full max-w-4xl mx-auto flex-1 flex flex-col justify-center py-12">
+                <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl p-8 md:p-12 text-center border border-white">
+                    {state.appLogo && <img src={state.appLogo} alt="Logo" className="h-20 mx-auto mb-6 object-contain" />}
+                    <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight">{state.portalTitle}</h1>
+                    <p className="text-gray-600 mt-4 max-w-lg mx-auto leading-relaxed">{state.portalSubtitle}</p>
                     
-                    {state.appLogo ? (
-                        <div className="mb-8 flex justify-center">
-                            <img src={state.appLogo} alt="Logo" className="h-24 object-contain max-w-[250px]" />
+                    <form onSubmit={handleSearch} className="mt-10 flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                            <input 
+                                type="email" 
+                                value={email} 
+                                onChange={e => setEmail(e.target.value)} 
+                                placeholder="O seu e-mail de inscrição" 
+                                required 
+                                className="w-full pl-11 pr-4 py-3.5 border-2 border-gray-100 rounded-2xl outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 transition-all shadow-sm bg-white font-medium" 
+                            />
                         </div>
-                    ) : (
-                        <div className="bg-brand-100 p-4 rounded-full w-fit mx-auto mb-6">
-                            <Award className="h-10 w-10 text-brand-600" />
-                        </div>
-                    )}
-
-                    <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mt-4">{state.portalTitle}</h1>
-                    <p className="text-gray-600 mt-2">{state.portalSubtitle}</p>
-                    
-                    <form onSubmit={handleSearch} className="mt-8 max-w-lg mx-auto" noValidate>
-                        <div className="flex flex-col gap-2">
-                            <div className="flex flex-col sm:flex-row gap-2">
-                                <input
-                                    type="email"
-                                    value={email}
-                                    onChange={(e) => {
-                                        setEmail(e.target.value);
-                                        if (error) setError(null);
-                                    }}
-                                    placeholder="O seu endereço de e-mail"
-                                    required
-                                    className={`w-full px-5 py-3 text-base text-gray-700 placeholder-gray-400 bg-gray-100 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition ${
-                                        error 
-                                        ? 'border-red-300 focus:ring-red-500' 
-                                        : 'border-gray-200 focus:ring-brand-500'
-                                    }`}
-                                />
-                                <button
-                                    type="submit"
-                                    disabled={isLoading}
-                                    className="flex items-center justify-center w-full sm:w-auto px-6 py-3 text-base font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 disabled:bg-brand-500 disabled:cursor-not-allowed transition-colors"
-                                >
-                                    {isLoading ? <Loader2 className="animate-spin h-5 w-5" /> : <Search className="h-5 w-5 mr-2" />}
-                                    {isLoading ? 'A procurar...' : 'Procurar'}
-                                </button>
-                            </div>
-                            {error && (
-                                <div className="flex items-center text-red-500 text-sm mt-1 animate-fadeIn">
-                                    <AlertCircle className="h-4 w-4 mr-1" />
-                                    {error}
-                                </div>
-                            )}
-                        </div>
+                        <button type="submit" disabled={isLoading} className="bg-brand-600 text-white px-8 py-3.5 rounded-2xl font-black hover:bg-brand-700 transition-all shadow-lg active:scale-95 disabled:opacity-50">
+                            {isLoading ? <Loader2 className="animate-spin" /> : 'Procurar'}
+                        </button>
                     </form>
+                    {error && <p className="text-red-500 text-xs font-bold mt-4 animate-pulse">{error}</p>}
                 </div>
 
                 {searched && !isLoading && (
-                    <div className="mt-10">
-                        {foundCertificates.length > 0 ? (
-                            <div className="space-y-4">
-                                <h2 className="text-2xl font-semibold text-gray-700 text-center mb-6">Certificados Encontrados</h2>
-                                {foundCertificates.map((cert) => {
-                                    const key = `${cert.participant.id}-${cert.event.id}`;
-                                    return (
-                                    <div key={key} className="bg-white rounded-lg shadow-md p-6 flex flex-col md:flex-row items-center justify-between transition-transform duration-300 hover:scale-[1.02] hover:shadow-xl border-l-4 border-brand-500">
-                                        <div className="flex items-center mb-4 md:mb-0">
-                                            <div className="p-3 bg-brand-50 rounded-full mr-4">
-                                                <Award className="h-6 w-6 text-brand-600" />
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-lg text-gray-800">{cert.event.name}</p>
-                                                <p className="text-sm text-gray-500">{new Date(cert.event.date).toLocaleDateString()} - {state.categories.find(c => c.id === cert.participant.categoryId)?.name}</p>
-                                            </div>
+                    <div className="mt-10 space-y-4 animate-fadeIn">
+                        {foundCertificates.map((cert) => {
+                            const key = `${cert.participant.id}-${cert.event.id}`;
+                            return (
+                                <div key={key} className="bg-white p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row justify-between items-center gap-4 border border-brand-100 hover:border-brand-300 transition-all group">
+                                    <div className="text-center sm:text-left">
+                                        <p className="font-black text-xl text-gray-900 group-hover:text-brand-600 transition-colors">{cert.event.name}</p>
+                                        <div className="flex flex-wrap justify-center sm:justify-start gap-2 mt-2">
+                                            <span className="px-3 py-1 bg-brand-50 text-brand-700 text-[10px] font-black rounded-full uppercase tracking-wider border border-brand-100">
+                                                {state.categories.find(c => c.id === cert.participant.categoryId)?.name || 'Participante'}
+                                            </span>
+                                            <span className="px-3 py-1 bg-gray-50 text-gray-400 text-[10px] font-bold rounded-full uppercase tracking-wider">
+                                                ID: {cert.participant.id.slice(0,8)}
+                                            </span>
                                         </div>
-                                        <button
-                                            onClick={() => handleDownload(cert)}
-                                            disabled={isDownloading === key}
-                                            className="w-full md:w-auto flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-green-300 transition-colors"
-                                        >
-                                            {isDownloading === key ? (
-                                                <>
-                                                    <Loader2 className="animate-spin h-4 w-4 mr-2" />
-                                                    A gerar PDF...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Download className="h-4 w-4 mr-2" />
-                                                    Descarregar PDF
-                                                </>
-                                            )}
-                                        </button>
                                     </div>
-                                )})}
-                            </div>
-                        ) : (
-                            <div className="text-center bg-white rounded-lg shadow-md p-8">
-                                <p className="text-gray-600">Nenhum certificado encontrado para este e-mail.</p>
+                                    <button 
+                                        onClick={() => handleDownload(cert)} 
+                                        disabled={isDownloading === key} 
+                                        className="w-full sm:w-auto bg-green-600 text-white px-8 py-3.5 rounded-2xl flex items-center justify-center gap-2 font-black hover:bg-green-700 transition-all shadow-lg hover:shadow-green-200 active:scale-95 disabled:opacity-50"
+                                    >
+                                        {isDownloading === key ? <Loader2 size={20} className="animate-spin" /> : <Download size={20} />}
+                                        {isDownloading === key ? 'A otimizar PDF...' : 'Baixar PDF'}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                        {foundCertificates.length === 0 && (
+                            <div className="bg-white/40 backdrop-blur-sm p-12 rounded-3xl text-center shadow-inner border-2 border-dashed border-gray-300">
+                                <AlertCircle size={48} className="mx-auto text-gray-300 mb-4" />
+                                <p className="text-gray-500 font-bold">Nenhum certificado disponível para este e-mail.</p>
+                                <p className="text-xs text-gray-400 mt-2">Verifique se o e-mail está correto ou contacte a organização.</p>
                             </div>
                         )}
                     </div>
                 )}
             </div>
 
-            {/* Hidden previews for PDF generation - Moved far off screen but kept dimensions */}
-            <div className="absolute overflow-hidden" style={{ top: '-10000px', left: '-10000px', width: '1200px', height: '1000px' }}>
+            {/* Renderização invisível para PDF */}
+            <div className="absolute" style={{ top: '-10000px', left: '-10000px', pointerEvents: 'none', width: '1123px' }}>
                 {foundCertificates.map(cert => {
                      const key = `${cert.participant.id}-${cert.event.id}`;
                     return <div key={key} ref={el => { previewRefs.current[key] = el; }}><CertificatePreview certificate={cert} /></div>
                 })}
             </div>
+
+            <footer className="py-8 w-full text-center">
+                <button onClick={() => window.location.hash = '/admin'} className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 hover:text-brand-600 flex items-center justify-center gap-2 mx-auto transition-all bg-white px-4 py-2 rounded-full shadow-sm">
+                    <Lock size={12}/> Acesso Administrativo
+                </button>
+            </footer>
         </div>
     );
 };

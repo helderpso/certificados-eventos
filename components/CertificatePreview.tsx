@@ -12,32 +12,64 @@ const CertificatePreview: React.FC<CertificatePreviewProps> = ({ certificate }) 
     const htmlContent = useMemo(() => {
         let text = template.text;
         
-        // Basic variable replacement
-        // Note: In a production app, consider using a library for safer HTML interpolation
+        // Substituição básica de variáveis
         text = text.replace(/{{PARTICIPANT_NAME}}/g, participant.name || '');
         text = text.replace(/{{EVENT_NAME}}/g, event.name || '');
-        text = text.replace(/{{DATE}}/g, new Date(event.date).toLocaleDateString() || '');
+        text = text.replace(/{{DATE}}/g, new Date(event.date).toLocaleDateString('pt-PT') || '');
         
-        // Handle categories if present
-        // text = text.replace(/{{CATEGORY}}/g, participant.categoryId || '');
-
         return text;
     }, [template.text, participant, event]);
 
     return (
         <div 
-            className="w-[1123px] h-[794px] relative bg-cover bg-center overflow-hidden shadow-2xl"
-            style={{ backgroundImage: `url(${template.backgroundImage})` }}
+            className="certificate-container"
+            style={{ 
+                width: '1123px', 
+                height: '794px', 
+                position: 'relative', 
+                backgroundColor: '#ffffff',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center'
+            }}
         >
-            <div className="absolute inset-0 flex flex-col justify-center items-center p-16">
-                 {/* 
-                   We render the user's HTML directly. 
-                   The user is an admin, so we assume some level of trust, 
-                   but in a public SaaS, we would strip scripts here.
-                */}
+            {/* 
+                USO DE TAG IMG: Fundamental para manter a qualidade original. 
+                Imagens em CSS background são frequentemente renderizadas com sub-sampling pelo browser.
+            */}
+            <img 
+                src={template.backgroundImage} 
+                alt="Background"
+                style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'fill',
+                    zIndex: 1
+                }}
+            />
+
+            <div 
+                className="content-wrapper"
+                style={{ 
+                    width: '100%', 
+                    padding: '80px',
+                    boxSizing: 'border-box',
+                    zIndex: 10,
+                    textAlign: 'center',
+                    position: 'relative'
+                }}
+            >
                 <div 
-                    className="w-full max-w-5xl"
-                    style={{ textShadow: '0px 2px 4px rgba(255,255,255,0.5)' }}
+                    className="html-render"
+                    style={{ 
+                        wordWrap: 'break-word',
+                        maxWidth: '100%'
+                    }}
                     dangerouslySetInnerHTML={{ __html: htmlContent }} 
                 />
             </div>
