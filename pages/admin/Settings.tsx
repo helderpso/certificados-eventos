@@ -51,17 +51,19 @@ const Settings: React.FC = () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error("Sessão expirada. Por favor, faça login novamente.");
 
+            // Criamos o objeto de dados dinamicamente
+            const settingsData: any = {
+                user_id: user.id,
+                portal_title: state.portalTitle,
+                portal_subtitle: state.portalSubtitle,
+                current_theme: state.currentTheme,
+                app_logo: state.appLogo,
+                custom_colors: state.customTheme.colors
+            };
+
             const { error } = await supabase
                 .from('app_settings')
-                .upsert({
-                    user_id: user.id,
-                    portal_title: state.portalTitle,
-                    portal_subtitle: state.portalSubtitle,
-                    current_theme: state.currentTheme,
-                    app_logo: state.appLogo,
-                    custom_colors: state.customTheme.colors,
-                    updated_at: new Date().toISOString()
-                });
+                .upsert(settingsData, { onConflict: 'user_id' });
 
             if (error) throw error;
 
@@ -70,11 +72,7 @@ const Settings: React.FC = () => {
         } catch (err: any) {
             console.error("Erro detalhado:", err);
             const msg = err.message || "Erro desconhecido";
-            if (msg.includes("custom_colors")) {
-                alert("Erro: A coluna 'custom_colors' não existe. Por favor, execute o comando SQL de correção no painel do Supabase.");
-            } else {
-                alert(`Erro ao guardar: ${msg}`);
-            }
+            alert(`Erro ao guardar: ${msg}. Certifique-se que executou o SQL de atualização no painel do Supabase para adicionar as colunas em falta.`);
         } finally {
             setIsSaving(false);
         }

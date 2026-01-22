@@ -116,7 +116,7 @@ const Login: React.FC = () => {
                             onClick={() => window.location.hash = '/'}
                             className="text-xs text-gray-400 hover:text-brand-600 block text-center w-full transition-colors"
                         >
-                            Voltar ao portal público de certificados
+                            Voltar ao portal público
                         </button>
                     </div>
                 </div>

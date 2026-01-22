@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { Calendar, Award, User, LogOut, Menu, X, UserCircle, Settings as SettingsIcon } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 import Events from './Events';
 import Templates from './Templates';
 import Profile from './Profile';
@@ -14,8 +15,15 @@ const AdminLayout: React.FC = () => {
     const [currentPage, setCurrentPage] = useState<AdminPage>('events');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-    const handleLogout = () => {
-        dispatch({ type: 'LOGOUT' });
+    const handleLogout = async () => {
+        try {
+            await supabase.auth.signOut();
+            dispatch({ type: 'LOGOUT' });
+        } catch (error) {
+            console.error("Erro ao sair:", error);
+            // Mesmo com erro no server, limpamos o estado local
+            dispatch({ type: 'LOGOUT' });
+        }
     };
 
     const renderPage = () => {
@@ -61,7 +69,7 @@ const AdminLayout: React.FC = () => {
                     <Award className="text-brand-500" />
                     CertifyPro
                 </h1>
-                <p className="text-xs text-gray-400 mt-1">Admin Panel</p>
+                <p className="text-xs text-gray-400 mt-1">Painel Administrativo</p>
             </div>
             
             <div className="px-4 pb-6 mb-2 border-b border-gray-700">
@@ -87,7 +95,7 @@ const AdminLayout: React.FC = () => {
             <div className="px-2 py-4">
                  <button
                     onClick={handleLogout}
-                    className="w-full flex items-center px-4 py-3 text-sm font-medium text-gray-300 rounded-lg hover:bg-gray-700 hover:text-white"
+                    className="w-full flex items-center px-4 py-3 text-sm font-medium text-gray-300 rounded-lg hover:bg-gray-700 hover:text-white transition-colors"
                 >
                     <LogOut className="mr-3 h-5 w-5" />
                     <span>Sair</span>

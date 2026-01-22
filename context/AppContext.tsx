@@ -144,46 +144,56 @@ const AppContext = createContext<{ state: AppState; dispatch: Dispatch<Action> }
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [state, dispatch] = useReducer(appReducer, defaultInitialState);
 
-    // Initial Load
+    // Initial Load and Auth Listener
     useEffect(() => {
-        const loadCloudData = async () => {
+        const loadInitialData = async () => {
+            dispatch({ type: 'SET_LOADING', payload: true });
+            
+            // Listen for auth changes (Signed Out event)
+            supabase.auth.onAuthStateChange((event, session) => {
+                if (event === 'SIGNED_OUT') {
+                    dispatch({ type: 'LOGOUT' });
+                }
+            });
+
             const { data: { session } } = await supabase.auth.getSession();
             
-            // Public data (always load for portal)
+            // Public settings (always load)
             const { data: settings } = await supabase.from('app_settings').select('*').maybeSingle();
             const { data: events } = await supabase.from('events').select('*');
             const { data: categories } = await supabase.from('categories').select('*');
             const { data: templates } = await supabase.from('templates').select('*');
 
+            const initialStateUpdate: Partial<AppState> = {
+                events: events || [],
+                categories: categories || [],
+                templates: templates?.map(t => ({
+                    id: t.id,
+                    name: t.name,
+                    categoryId: t.category_id,
+                    backgroundImage: t.background_image,
+                    text: t.text_content
+                })) || [],
+                appLogo: settings?.app_logo || '',
+                portalTitle: settings?.portal_title || 'Portal de Certificados',
+                portalSubtitle: settings?.portal_subtitle || 'Encontre os seus certificados.',
+                currentTheme: (settings?.current_theme as ThemeId) || 'blue',
+                customTheme: settings?.custom_colors ? { ...defaultInitialState.customTheme, colors: settings.custom_colors } : defaultInitialState.customTheme
+            };
+
             if (session?.user) {
-                dispatch({ 
-                    type: 'LOGIN', 
-                    payload: { name: session.user.user_metadata.full_name || 'Admin', email: session.user.email!, password: '' } 
-                });
+                initialStateUpdate.isAuthenticated = true;
+                initialStateUpdate.currentUser = { 
+                    name: session.user.user_metadata.full_name || 'Admin', 
+                    email: session.user.email!, 
+                    password: '' 
+                };
             }
 
-            dispatch({
-                type: 'SET_INITIAL_STATE',
-                payload: {
-                    events: events || [],
-                    categories: categories || [],
-                    templates: templates?.map(t => ({
-                        id: t.id,
-                        name: t.name,
-                        categoryId: t.category_id,
-                        backgroundImage: t.background_image,
-                        text: t.text_content
-                    })) || [],
-                    appLogo: settings?.app_logo || '',
-                    portalTitle: settings?.portal_title || 'Portal de Certificados',
-                    portalSubtitle: settings?.portal_subtitle || 'Encontre os seus certificados.',
-                    currentTheme: (settings?.current_theme as ThemeId) || 'blue',
-                    customTheme: settings?.custom_colors ? { ...defaultInitialState.customTheme, colors: settings.custom_colors } : defaultInitialState.customTheme
-                }
-            });
+            dispatch({ type: 'SET_INITIAL_STATE', payload: initialStateUpdate });
         };
 
-        loadCloudData();
+        loadInitialData();
     }, []);
 
     return <AppContext.Provider value={{ state, dispatch }}>{children}</AppContext.Provider>;
