@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useAppContext, THEMES } from '../../context/AppContext';
-import { Check, Monitor, Palette, Sliders, RefreshCw, Image as ImageIcon, Upload, Trash2, Type, FileText, Save, Loader2 } from 'lucide-react';
+import { Check, Monitor, Palette, Sliders, RefreshCw, Image as ImageIcon, Upload, Trash2, Type, FileText, Save, Loader2, Globe } from 'lucide-react';
 import type { ThemeId, ThemeConfig } from '../../types';
 import { supabase } from '../../lib/supabase';
 
@@ -36,7 +36,7 @@ const Settings: React.FC = () => {
         dispatch({ type: 'UPDATE_LOGO', payload: '' });
     };
 
-    const handlePortalTextUpdate = (field: 'title' | 'subtitle', value: string) => {
+    const handlePortalTextUpdate = (field: 'title' | 'subtitle' | 'metaTitle', value: string) => {
         dispatch({
             type: 'UPDATE_PORTAL_TEXT',
             payload: { [field]: value }
@@ -51,11 +51,11 @@ const Settings: React.FC = () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error("Sessão expirada. Por favor, faça login novamente.");
 
-            // Criamos o objeto de dados dinamicamente
             const settingsData: any = {
                 user_id: user.id,
                 portal_title: state.portalTitle,
                 portal_subtitle: state.portalSubtitle,
+                portal_meta_title: state.portalMetaTitle,
                 current_theme: state.currentTheme,
                 app_logo: state.appLogo,
                 custom_colors: state.customTheme.colors
@@ -72,7 +72,7 @@ const Settings: React.FC = () => {
         } catch (err: any) {
             console.error("Erro detalhado:", err);
             const msg = err.message || "Erro desconhecido";
-            alert(`Erro ao guardar: ${msg}. Certifique-se que executou o SQL de atualização no painel do Supabase para adicionar as colunas em falta.`);
+            alert(`Erro ao guardar: ${msg}. Certifique-se que executou o SQL de atualização no painel do Supabase para adicionar a coluna 'portal_meta_title'.`);
         } finally {
             setIsSaving(false);
         }
@@ -158,18 +158,33 @@ const Settings: React.FC = () => {
                         </div>
                         <div className="ml-6">
                             <h3 className="text-xl font-bold text-gray-900">Conteúdo do Portal Público</h3>
-                            <p className="text-gray-500">Textos que os participantes verão ao procurar certificados.</p>
+                            <p className="text-gray-500">Configurações que influenciam o browser e a página inicial.</p>
                         </div>
                     </div>
                 </div>
                 <div className="p-6 md:p-8 space-y-6">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Título Principal</label>
+                        <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+                            <Globe className="h-4 w-4 text-brand-500" />
+                            Título da Aba (Browser / SEO)
+                        </label>
+                        <input
+                            type="text"
+                            value={state.portalMetaTitle}
+                            onChange={(e) => handlePortalTextUpdate('metaTitle', e.target.value)}
+                            placeholder="Ex: CertifyPro - Portal de Certificados"
+                            className="block w-full border-gray-300 rounded-md shadow-sm p-2.5 border focus:ring-brand-500 focus:border-brand-500 transition"
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1 italic">Este é o texto que aparece na aba do navegador e nos motores de busca.</p>
+                    </div>
+
+                    <div className="pt-4 border-t border-gray-100">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Título da Página Inicial</label>
                         <input
                             type="text"
                             value={state.portalTitle}
                             onChange={(e) => handlePortalTextUpdate('title', e.target.value)}
-                            className="block w-full border-gray-300 rounded-md shadow-sm p-2.5 border focus:ring-brand-500 focus:border-brand-500"
+                            className="block w-full border-gray-300 rounded-md shadow-sm p-2.5 border focus:ring-brand-500 focus:border-brand-500 transition"
                         />
                     </div>
                     <div>
@@ -178,7 +193,7 @@ const Settings: React.FC = () => {
                             rows={3}
                             value={state.portalSubtitle}
                             onChange={(e) => handlePortalTextUpdate('subtitle', e.target.value)}
-                            className="block w-full border-gray-300 rounded-md shadow-sm p-2.5 border focus:ring-brand-500 focus:border-brand-500"
+                            className="block w-full border-gray-300 rounded-md shadow-sm p-2.5 border focus:ring-brand-500 focus:border-brand-500 transition"
                         />
                     </div>
                 </div>

@@ -1,15 +1,21 @@
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useAppContext, THEMES } from '../context/AppContext';
 
 const ThemeManager: React.FC = () => {
     const { state } = useAppContext();
     
     // Determine which theme configuration to use
-    // If it's custom, we use the one from the state, otherwise we use the static definition
     const theme = state.currentTheme === 'custom' 
         ? state.customTheme 
         : THEMES[state.currentTheme];
+
+    // Synchronize browser tab title
+    useEffect(() => {
+        if (state.portalMetaTitle) {
+            document.title = state.portalMetaTitle;
+        }
+    }, [state.portalMetaTitle]);
 
     return (
         <style>

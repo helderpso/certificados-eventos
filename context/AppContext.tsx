@@ -35,6 +35,7 @@ interface AppState {
     appLogo?: string;
     portalTitle: string;
     portalSubtitle: string;
+    portalMetaTitle: string;
     isLoading: boolean;
 }
 
@@ -59,7 +60,7 @@ type Action =
     | { type: 'UPDATE_LOGO'; payload: string }
     | { type: 'UPDATE_THEME'; payload: ThemeId }
     | { type: 'UPDATE_CUSTOM_THEME'; payload: Partial<ThemeConfig['colors']> }
-    | { type: 'UPDATE_PORTAL_TEXT'; payload: { title?: string; subtitle?: string } }
+    | { type: 'UPDATE_PORTAL_TEXT'; payload: { title?: string; subtitle?: string; metaTitle?: string } }
     | { type: 'UPDATE_PROFILE'; payload: User };
 
 const defaultInitialState: AppState = {
@@ -75,6 +76,7 @@ const defaultInitialState: AppState = {
     appLogo: '',
     portalTitle: 'Portal de Certificados',
     portalSubtitle: 'Insira o seu e-mail para encontrar e descarregar os seus certificados de participação.',
+    portalMetaTitle: 'CertifyPro - Portal de Certificados',
     isLoading: true
 };
 
@@ -87,7 +89,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case 'LOGIN':
             return { ...state, isAuthenticated: true, currentUser: action.payload || state.currentUser };
         case 'LOGOUT':
-            // Crucial: preserve visual settings on logout
             return { 
                 ...state, 
                 isAuthenticated: false, 
@@ -137,7 +138,12 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 } 
             };
         case 'UPDATE_PORTAL_TEXT':
-            return { ...state, portalTitle: action.payload.title || state.portalTitle, portalSubtitle: action.payload.subtitle || state.portalSubtitle };
+            return { 
+                ...state, 
+                portalTitle: action.payload.title !== undefined ? action.payload.title : state.portalTitle, 
+                portalSubtitle: action.payload.subtitle !== undefined ? action.payload.subtitle : state.portalSubtitle,
+                portalMetaTitle: action.payload.metaTitle !== undefined ? action.payload.metaTitle : state.portalMetaTitle
+            };
         case 'UPDATE_PROFILE':
             return { ...state, currentUser: action.payload };
         default:
@@ -155,13 +161,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const loadInitialData = async () => {
             dispatch({ type: 'SET_LOADING', payload: true });
             
-            // 1. Fetch current session immediately
             const { data: { session } } = await supabase.auth.getSession();
-            
-            // 2. Fetch public app settings (Source of truth for theme/titles)
             const { data: settings } = await supabase.from('app_settings').select('*').maybeSingle();
             
-            // 3. Fetch other entities
             const [eventsRes, categoriesRes, templatesRes, participantsRes, historyRes] = await Promise.all([
                 supabase.from('events').select('*'),
                 supabase.from('categories').select('*'),
@@ -183,8 +185,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                     text: t.text_content
                 })) || [],
                 appLogo: settings?.app_logo || '',
-                portalTitle: settings?.portal_title || 'Portal de Certificados',
-                portalSubtitle: settings?.portal_subtitle || 'Encontre os seus certificados.',
+                portalTitle: settings?.portal_title || defaultInitialState.portalTitle,
+                portalSubtitle: settings?.portal_subtitle || defaultInitialState.portalSubtitle,
+                portalMetaTitle: settings?.portal_meta_title || defaultInitialState.portalMetaTitle,
                 currentTheme: (settings?.current_theme as ThemeId) || 'blue',
                 customTheme: settings?.custom_colors ? { ...defaultInitialState.customTheme, colors: settings.custom_colors } : defaultInitialState.customTheme
             };
@@ -204,7 +207,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         loadInitialData();
     }, []);
 
-    // Dedicated Auth Listener to handle session sync (Logout/Login from other tabs or actions)
+    // Dedicated Auth Listener
     useEffect(() => {
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             if (event === 'SIGNED_OUT') {
