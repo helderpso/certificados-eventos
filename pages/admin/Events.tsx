@@ -6,7 +6,7 @@ import html2canvas from 'html2canvas';
 import { useAppContext } from '../../context/AppContext';
 import { supabase } from '../../lib/supabase';
 import type { Event, Participant, Certificate, Template, ImportRecord } from '../../types';
-import { Plus, Edit, Users, X, Upload, Download, FileText, User, Loader2, Award, AlertTriangle, ArrowUpDown, Search, ChevronLeft, ChevronRight, Trash2, History, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
+import { Plus, Edit, Users, X, Upload, Download, FileText, User, Loader2, Award, AlertTriangle, ArrowUpDown, Search, ChevronLeft, ChevronRight, Trash2, History, FileSpreadsheet, CheckCircle2, FileDown } from 'lucide-react';
 import CertificatePreview from '../../components/CertificatePreview';
 
 const Events: React.FC = () => {
@@ -41,7 +41,9 @@ const Events: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
-    const [downloadingId, setDownloadingId] = useState<string | null>(null);
+    
+    // States for individual PDF download
+    const [isDownloadingParticipant, setIsDownloadingParticipant] = useState<string | null>(null);
     const [tempCertForDownload, setTempCertForDownload] = useState<Certificate | null>(null);
     const downloadPreviewRef = useRef<HTMLDivElement>(null);
 
@@ -157,7 +159,6 @@ const Events: React.FC = () => {
             data: sampleData
         });
 
-        // Adicionamos o BOM (\ufeff) para que o Excel reconheça o ficheiro como UTF-8
         const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
@@ -181,7 +182,7 @@ const Events: React.FC = () => {
         Papa.parse(csvFile, {
             header: true,
             skipEmptyLines: true,
-            encoding: "UTF-8", // Forçamos UTF-8 para garantir a leitura correta de acentos
+            encoding: "UTF-8",
             complete: async (results) => {
                 try {
                     const importId = crypto.randomUUID();
@@ -255,6 +256,61 @@ const Events: React.FC = () => {
                 }
             }
         });
+    };
+
+    const handleDownloadParticipant = async (p: Participant) => {
+        if (!selectedEventForParticipants) return;
+        
+        const template = state.templates.find(t => t.categoryId === p.categoryId);
+        if (!template) {
+            alert("Não existe nenhum modelo de certificado configurado para a categoria deste participante.");
+            return;
+        }
+
+        setIsDownloadingParticipant(p.id);
+        
+        const certificate: Certificate = {
+            participant: p,
+            event: selectedEventForParticipants,
+            template: template
+        };
+
+        // Set certificate to render in the hidden div
+        setTempCertForDownload(certificate);
+
+        // Allow React a tick to render
+        setTimeout(async () => {
+            try {
+                const element = downloadPreviewRef.current;
+                if (!element) throw new Error("Falha ao preparar o certificado.");
+
+                // High quality PDF dimensions (300 DPI)
+                const a4w = 2480; 
+                
+                const canvas = await html2canvas(element, {
+                    scale: a4w / element.offsetWidth,
+                    useCORS: true,
+                    width: element.offsetWidth,
+                    height: element.offsetHeight,
+                });
+
+                const imgData = canvas.toDataURL('image/png');
+                const pdf = new jsPDF({
+                    orientation: 'landscape',
+                    unit: 'px',
+                    format: [canvas.width, canvas.height]
+                });
+
+                pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+                pdf.save(`Certificado_${selectedEventForParticipants.name.replace(/ /g, '_')}_${p.name.replace(/ /g, '_')}.pdf`);
+            } catch (err) {
+                console.error("Erro ao gerar PDF:", err);
+                alert("Ocorreu um erro ao gerar o PDF.");
+            } finally {
+                setIsDownloadingParticipant(null);
+                setTempCertForDownload(null);
+            }
+        }, 300);
     };
 
     return (
@@ -399,9 +455,19 @@ const Events: React.FC = () => {
                                                             </span>
                                                         </td>
                                                         <td className="px-4 py-3 text-right">
-                                                            <button onClick={() => setDeleteConfig({ isOpen: true, type: 'participant', id: p.id, title: 'Remover Participante', message: `Tem a certeza que deseja remover ${p.name}?` })} className="text-gray-400 hover:text-red-600 transition-colors">
-                                                                <Trash2 size={16}/>
-                                                            </button>
+                                                            <div className="flex justify-end gap-1">
+                                                                <button 
+                                                                    onClick={() => handleDownloadParticipant(p)} 
+                                                                    disabled={isDownloadingParticipant === p.id}
+                                                                    title="Exportar Certificado (PDF)"
+                                                                    className={`p-1.5 rounded-md transition-colors ${isDownloadingParticipant === p.id ? 'bg-gray-100 text-gray-400' : 'text-brand-600 hover:bg-brand-50'}`}
+                                                                >
+                                                                    {isDownloadingParticipant === p.id ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18}/>}
+                                                                </button>
+                                                                <button onClick={() => setDeleteConfig({ isOpen: true, type: 'participant', id: p.id, title: 'Remover Participante', message: `Tem a certeza que deseja remover ${p.name}?` })} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors">
+                                                                    <Trash2 size={18}/>
+                                                                </button>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -413,7 +479,6 @@ const Events: React.FC = () => {
                                             </tbody>
                                         </table>
                                     </div>
-                                    {/* Pagination Placeholder */}
                                     {filteredParticipants.length > itemsPerPage && (
                                         <div className="flex justify-center gap-2 mt-4">
                                             <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} className="p-2 border rounded-lg bg-white hover:bg-gray-100 disabled:opacity-50" disabled={currentPage === 1}><ChevronLeft size={16}/></button>
@@ -545,8 +610,13 @@ const Events: React.FC = () => {
                 </div>
             )}
 
-            <div className="absolute -left-[9999px] invisible">
-                {tempCertForDownload && <div ref={downloadPreviewRef}><CertificatePreview certificate={tempCertForDownload} /></div>}
+            {/* Hidden preview for individual PDF generation */}
+            <div className="absolute -left-[9999px] invisible pointer-events-none">
+                {tempCertForDownload && (
+                    <div ref={downloadPreviewRef}>
+                        <CertificatePreview certificate={tempCertForDownload} />
+                    </div>
+                )}
             </div>
         </div>
     );
