@@ -131,9 +131,10 @@ const Events: React.FC = () => {
                 ({ error } = await supabase.from('participants').delete().eq('id', id));
                 if (!error) dispatch({ type: 'DELETE_PARTICIPANT', payload: id });
             } else if (type === 'import') {
-                ({ error } = await supabase.from('import_history').delete().eq('id', id));
-                // Fix: DB uses import_id column
+                // Ao apagar o histórico de importação, os participantes costumam ser apagados em cascata 
+                // ou precisamos de apagar manualmente se não houver ON DELETE CASCADE
                 await supabase.from('participants').delete().eq('import_id', id);
+                ({ error } = await supabase.from('import_history').delete().eq('id', id));
                 if (!error) dispatch({ type: 'DELETE_IMPORT', payload: id });
             }
             if (error) throw error;
@@ -183,7 +184,20 @@ const Events: React.FC = () => {
             complete: async (results) => {
                 try {
                     const importId = crypto.randomUUID();
-                    // Fix: Map to DB column names (snake_case)
+                    const now = new Date().toISOString();
+
+                    // Prepara os dados do histórico PRIMEIRO para satisfazer a Chave Estrangeira
+                    const importRecordData = {
+                        id: importId,
+                        date: now,
+                        file_name: csvFile.name,
+                        count: 0, // Será atualizado depois ou inserido já com o valor real
+                        event_id: selectedEventForParticipants.id,
+                        category_name: categoryName,
+                        status: 'success'
+                    };
+
+                    // Mapeia os participantes do CSV para o formato da BD (snake_case)
                     const dbParticipants = results.data
                         .map((row: any) => ({
                             id: crypto.randomUUID(),
@@ -195,25 +209,24 @@ const Events: React.FC = () => {
                         }))
                         .filter((p: any) => p.name && p.email);
 
-                    if (dbParticipants.length === 0) throw new Error("Nenhum dado válido no CSV.");
+                    if (dbParticipants.length === 0) throw new Error("Nenhum dado válido no CSV. Verifique se as colunas se chamam 'name' e 'email'.");
 
-                    const { error: pError } = await supabase.from('participants').insert(dbParticipants);
-                    if (pError) throw pError;
+                    // Atualiza a contagem no registo de histórico
+                    importRecordData.count = dbParticipants.length;
 
-                    const importRecordData = {
-                        id: importId,
-                        date: new Date().toISOString(),
-                        file_name: csvFile.name,
-                        count: dbParticipants.length,
-                        event_id: selectedEventForParticipants.id,
-                        category_name: categoryName,
-                        status: 'success'
-                    };
-
+                    // 1. Inserir o registo de histórico (PAI)
                     const { error: hError } = await supabase.from('import_history').insert(importRecordData);
                     if (hError) throw hError;
 
-                    // Dispatch to state using camelCase as expected by the frontend types
+                    // 2. Inserir os participantes (FILHOS) - agora a FK import_id existe
+                    const { error: pError } = await supabase.from('participants').insert(dbParticipants);
+                    if (pError) {
+                        // Se falhar a inserção de participantes, tentamos remover o histórico para não deixar lixo
+                        await supabase.from('import_history').delete().eq('id', importId);
+                        throw pError;
+                    }
+
+                    // Dispatch para o estado local usando camelCase
                     const localParticipants: Participant[] = dbParticipants.map(p => ({
                         id: p.id,
                         name: p.name,
@@ -236,12 +249,13 @@ const Events: React.FC = () => {
                     dispatch({ type: 'ADD_PARTICIPANTS', payload: localParticipants });
                     dispatch({ type: 'ADD_IMPORT_HISTORY', payload: localImportHistory });
 
-                    setImportFeedback({ type: 'success', message: 'Importação concluída com sucesso!' });
+                    setImportFeedback({ type: 'success', message: `Sucesso! ${dbParticipants.length} participantes importados.` });
                     setParticipantModalTab('history');
                     setCsvFile(null);
                     setSelectedCategory('');
                 } catch (err: any) {
-                    setImportFeedback({ type: 'error', message: err.message });
+                    console.error("Erro na importação:", err);
+                    setImportFeedback({ type: 'error', message: err.message || "Erro desconhecido ao importar ficheiro." });
                 } finally {
                     setIsActionLoading(false);
                 }
@@ -299,7 +313,7 @@ const Events: React.FC = () => {
 
             {isEventModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg shadow-xl w-full max-md p-6">
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
                         <h3 className="text-xl font-bold mb-4">{currentEvent ? 'Editar Evento' : 'Novo Evento'}</h3>
                         <form onSubmit={handleEventSubmit} className="space-y-4">
                             <div>
