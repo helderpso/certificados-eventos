@@ -5,7 +5,6 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { useAppContext } from '../../context/AppContext';
 import { supabase } from '../../lib/supabase';
-// Added ImportRecord to the types import
 import type { Event, Participant, Certificate, Template, ImportRecord } from '../../types';
 import { Plus, Edit, Users, X, Upload, Download, FileText, User, Loader2, Award, AlertTriangle, ArrowUpDown, Search, ChevronLeft, ChevronRight, Trash2, History, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
 import CertificatePreview from '../../components/CertificatePreview';
@@ -133,7 +132,8 @@ const Events: React.FC = () => {
                 if (!error) dispatch({ type: 'DELETE_PARTICIPANT', payload: id });
             } else if (type === 'import') {
                 ({ error } = await supabase.from('import_history').delete().eq('id', id));
-                await supabase.from('participants').delete().eq('importId', id);
+                // Fix: DB uses import_id column
+                await supabase.from('participants').delete().eq('import_id', id);
                 if (!error) dispatch({ type: 'DELETE_IMPORT', payload: id });
             }
             if (error) throw error;
@@ -183,38 +183,58 @@ const Events: React.FC = () => {
             complete: async (results) => {
                 try {
                     const importId = crypto.randomUUID();
-                    const newParticipants = results.data
+                    // Fix: Map to DB column names (snake_case)
+                    const dbParticipants = results.data
                         .map((row: any) => ({
                             id: crypto.randomUUID(),
                             name: row.name?.toString().trim(),
                             email: row.email?.toString().trim(),
-                            eventId: selectedEventForParticipants.id,
-                            categoryId: selectedCategory,
-                            importId: importId 
+                            event_id: selectedEventForParticipants.id,
+                            category_id: selectedCategory,
+                            import_id: importId 
                         }))
                         .filter((p: any) => p.name && p.email);
 
-                    if (newParticipants.length === 0) throw new Error("Nenhum dado válido no CSV.");
+                    if (dbParticipants.length === 0) throw new Error("Nenhum dado válido no CSV.");
 
-                    const { error: pError } = await supabase.from('participants').insert(newParticipants);
+                    const { error: pError } = await supabase.from('participants').insert(dbParticipants);
                     if (pError) throw pError;
 
-                    // Fix: Added explicit ImportRecord type to ensure status is correctly typed
-                    const importRecord: ImportRecord = {
+                    const importRecordData = {
                         id: importId,
                         date: new Date().toISOString(),
-                        fileName: csvFile.name,
-                        count: newParticipants.length,
-                        eventId: selectedEventForParticipants.id,
-                        categoryName: categoryName,
+                        file_name: csvFile.name,
+                        count: dbParticipants.length,
+                        event_id: selectedEventForParticipants.id,
+                        category_name: categoryName,
                         status: 'success'
                     };
 
-                    const { error: hError } = await supabase.from('import_history').insert(importRecord);
+                    const { error: hError } = await supabase.from('import_history').insert(importRecordData);
                     if (hError) throw hError;
 
-                    dispatch({ type: 'ADD_PARTICIPANTS', payload: newParticipants });
-                    dispatch({ type: 'ADD_IMPORT_HISTORY', payload: importRecord });
+                    // Dispatch to state using camelCase as expected by the frontend types
+                    const localParticipants: Participant[] = dbParticipants.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        email: p.email,
+                        eventId: p.event_id,
+                        categoryId: p.category_id,
+                        importId: p.import_id
+                    }));
+
+                    const localImportHistory: ImportRecord = {
+                        id: importRecordData.id,
+                        date: importRecordData.date,
+                        fileName: importRecordData.file_name,
+                        count: importRecordData.count,
+                        eventId: importRecordData.event_id,
+                        categoryName: importRecordData.category_name,
+                        status: 'success'
+                    };
+
+                    dispatch({ type: 'ADD_PARTICIPANTS', payload: localParticipants });
+                    dispatch({ type: 'ADD_IMPORT_HISTORY', payload: localImportHistory });
 
                     setImportFeedback({ type: 'success', message: 'Importação concluída com sucesso!' });
                     setParticipantModalTab('history');
@@ -279,7 +299,7 @@ const Events: React.FC = () => {
 
             {isEventModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+                    <div className="bg-white rounded-lg shadow-xl w-full max-md p-6">
                         <h3 className="text-xl font-bold mb-4">{currentEvent ? 'Editar Evento' : 'Novo Evento'}</h3>
                         <form onSubmit={handleEventSubmit} className="space-y-4">
                             <div>

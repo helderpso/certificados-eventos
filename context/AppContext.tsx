@@ -175,8 +175,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const initialStateUpdate: Partial<AppState> = {
                 events: eventsRes.data || [],
                 categories: categoriesRes.data || [],
-                importHistory: historyRes.data || [],
-                participants: participantsRes.data || [],
+                importHistory: historyRes.data?.map(h => ({
+                    id: h.id,
+                    date: h.date,
+                    fileName: h.file_name,
+                    count: h.count,
+                    eventId: h.event_id,
+                    categoryName: h.category_name,
+                    status: h.status
+                })) || [],
+                participants: participantsRes.data?.map(p => ({
+                    id: p.id,
+                    name: p.name,
+                    email: p.email,
+                    eventId: p.event_id,
+                    categoryId: p.category_id,
+                    importId: p.import_id
+                })) || [],
                 templates: templatesRes.data?.map(t => ({
                     id: t.id,
                     name: t.name,
