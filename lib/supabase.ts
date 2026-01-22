@@ -1,9 +1,8 @@
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.1/+esm';
 
-// Substitua estas variáveis pelas credenciais do seu projeto Supabase
-// Em produção, estas viriam de process.env.SUPABASE_URL e process.env.SUPABASE_ANON_KEY
-const supabaseUrl = 'https://seu-projeto.supabase.co';
-const supabaseAnonKey = 'sua-chave-anonima';
+// Configurações do projeto Supabase fornecidas pelo utilizador
+const supabaseUrl = 'https://olpqtbhelgpgkepaajek.supabase.co';
+const supabaseAnonKey = 'sb_publishable_s3uqbp0yWV--qXdNc5AHkQ_YRRYO1RI';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

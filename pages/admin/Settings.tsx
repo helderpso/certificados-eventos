@@ -2,13 +2,13 @@
 import React from 'react';
 import { useAppContext, THEMES } from '../../context/AppContext';
 import { Check, Monitor, Palette, Sliders, RefreshCw, Image as ImageIcon, Upload, Trash2, Type, FileText } from 'lucide-react';
-import type { ThemeId } from '../../types';
+import type { ThemeId, ThemeConfig } from '../../types';
 
 const Settings: React.FC = () => {
     const { state, dispatch } = useAppContext();
 
     const handleThemeChange = (themeId: ThemeId) => {
-        dispatch({ type: 'SET_THEME', payload: themeId });
+        dispatch({ type: 'UPDATE_THEME', payload: themeId });
     };
 
     const handleCustomColorChange = (shade: '50' | '100' | '500' | '600' | '700', value: string) => {
@@ -41,8 +41,9 @@ const Settings: React.FC = () => {
     };
     
     // Helper to allow looping through the static themes plus the dynamic custom one for the cards
+    // Fixed: Cast Object.values(THEMES) to ThemeConfig[] to avoid unknown type error
     const allThemesDisplay = [
-        ...Object.values(THEMES).filter(t => t.id !== 'custom'),
+        ...(Object.values(THEMES) as ThemeConfig[]).filter(t => t.id !== 'custom'),
         state.customTheme // Use the state version of custom theme for the card display
     ];
 
