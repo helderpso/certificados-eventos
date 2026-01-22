@@ -137,12 +137,6 @@ const CertificateFinder: React.FC = () => {
                             )}
                         </div>
                     </form>
-                     <button
-                        onClick={() => window.location.hash = '/admin'}
-                        className="text-sm text-gray-500 hover:text-brand-600 mt-4 inline-block bg-transparent border-none p-0 cursor-pointer underline"
-                    >
-                        Acesso de Administrador
-                    </button>
                 </div>
 
                 {searched && !isLoading && (
