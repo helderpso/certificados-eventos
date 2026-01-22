@@ -76,7 +76,7 @@ const defaultInitialState: AppState = {
     appLogo: '',
     portalTitle: 'Portal de Certificados',
     portalSubtitle: 'Insira o seu e-mail para encontrar e descarregar os seus certificados de participação.',
-    portalMetaTitle: 'CertifyPro - Portal de Certificados',
+    portalMetaTitle: '', // Set to empty initially to avoid flicker
     isLoading: true
 };
 
@@ -187,7 +187,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 appLogo: settings?.app_logo || '',
                 portalTitle: settings?.portal_title || defaultInitialState.portalTitle,
                 portalSubtitle: settings?.portal_subtitle || defaultInitialState.portalSubtitle,
-                portalMetaTitle: settings?.portal_meta_title || defaultInitialState.portalMetaTitle,
+                portalMetaTitle: settings?.portal_meta_title || 'Portal de Certificados',
                 currentTheme: (settings?.current_theme as ThemeId) || 'blue',
                 customTheme: settings?.custom_colors ? { ...defaultInitialState.customTheme, colors: settings.custom_colors } : defaultInitialState.customTheme
             };
