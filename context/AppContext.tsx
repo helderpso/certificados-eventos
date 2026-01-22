@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useReducer, ReactNode, Dispatch } from 'react';
+import React, { createContext, useContext, useReducer, ReactNode, Dispatch, useEffect } from 'react';
 import type { Event, Category, Template, Participant, User, ThemeId, ThemeConfig, ImportRecord } from '../types';
 
 interface AppState {
@@ -13,6 +13,8 @@ interface AppState {
     participants: Participant[];
     importHistory: ImportRecord[];
     appLogo?: string; // Base64 string for the logo
+    portalTitle: string;
+    portalSubtitle: string;
 }
 
 type Action =
@@ -34,10 +36,12 @@ type Action =
     | { type: 'DELETE_PARTICIPANT'; payload: string }
     | { type: 'ADD_IMPORT_HISTORY'; payload: ImportRecord }
     | { type: 'DELETE_IMPORT'; payload: string }
-    | { type: 'UPDATE_LOGO'; payload: string }; // Payload is base64 string or empty string
+    | { type: 'UPDATE_LOGO'; payload: string }
+    | { type: 'UPDATE_PORTAL_TEXT'; payload: { title?: string; subtitle?: string } };
 
+const STORAGE_KEY = 'certify_pro_v1_state';
 
-const sampleTemplateBg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMTIzIiBoZWlnaHQ9Ijc5NCIgdmlld0JveD0iMCAwIDExMjMgNzk0Ij48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjdmYWZjIi8+PHJlY3QgeD0iMzAiIHk9IjMwIiB3aWR0aD0iMTA2MyIgaGVpZ2h0PSI3MzQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSI1Ii8+PHBhdGggZD0iTSA1MCw1MCBMIDE1MCw1MCBMIDE1MCwxNTAgTCA1MCwxNTAgWiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNDI5OWUxIiBzdHJva2Utd2lkdGg9IjIiIHRyYW5zZm9ybT0icm90YXRlKDQ1IDEwMCAxMDApIi8+PHBhdGggZD0iTSA5NzMsNTAgTCAxMDczLDUwIEwgMTA3MywxNTAgTCA5NzMsMTUwIFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSIyIiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAxMDIzIDEwMCkiLz48cGF0aCBkPSJNIDUwLDY0NCBMIDE1MCw2NDQgTCAxNTAsNzQ0IEwgNTAsNzQ0IFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSIyIiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAxMDAgNjk0KSIvPjxwYXRoIGQ9Ik0gOTczLDY0NCBMIDEwNzMsNjQ0IEwgMTA3Myw3NDQgTCA5NzMsNzQ0IFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSIyIiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAxMDIzIDY5NCkiLz48L3N2Zz4=';
+const sampleTemplateBg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMTIzIiBoZWlnaHQ9Ijc5NCIgdmlld0JveD0iMCAwIDExMjMgNzk0Ij48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjdmYWZjIi8+PHJlY3QgeD0iMzAiIHk9IjMwIiB3aWR0aD0iMTA2MyIgaGVpZ2h0PSI3MzQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSI1Ii8+PHBhdGggZD0iTSA1MCw1MCBMIDE1MCw1MCBMIDE1MCwxNTAgTCA1MCwxNTAgWiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNDI5OWUxIiBzdHJva2Utd2lkdGg9IjIiIHRyYW5zZm9ybT0icm90YXRlKDQ1IDEwMCAxMDApIi8+PHBhdGggZD0iTSA5NzMsNTAgTCAxMDczLDUwIEwgMTA3MywxNTAgTCA5NzMsMTUwIFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSIyIiB0cmFuc2Zm9ybT0icm90YXRlKDQ1IDEwMjIzIDEwMCkiLz48cGF0aCBkPSJNIDUwLDY0NCBMIDE1MCw2NDQgTCAxNTAsNzQ0IEwgNTAsNzQ0IFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzQyOTllMSIgc3Ryb2tlLXdpZHRoPSIyIiB0cmFuc2Zm9ybT0icm90YXRlKDQ1IDEwMCA2OTQpIi8+PHBhdGggZD0iTSA5NzMsNjQ0IEwgMTA3Myw2NDQgTCAxMDczLDc0NCBMIDk3Myw3NDQgWiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNDI5OWUxIiBzdHJva2Utd2lkdGg9IjIiIHRyYW5zZm9ybT0icm90YXRlKDQ1IDEwMjMgNjk0KSIvPjwvc3ZnPg==';
 
 export const THEMES: Record<string, ThemeConfig> = {
     blue: {
@@ -86,7 +90,7 @@ export const THEMES: Record<string, ThemeConfig> = {
     }
 };
 
-const initialState: AppState = {
+const defaultInitialState: AppState = {
     isAuthenticated: false,
     currentUser: {
         name: 'Administrador',
@@ -145,7 +149,23 @@ const initialState: AppState = {
     importHistory: [
         { id: 'imp1', date: '2024-10-20T10:30:00Z', fileName: 'inscritos_v1.csv', count: 2, eventId: 'evt1', categoryName: 'Congressista', status: 'success' }
     ],
-    appLogo: ''
+    appLogo: '',
+    portalTitle: 'Portal de Certificados',
+    portalSubtitle: 'Insira o seu e-mail para encontrar e descarregar os seus certificados de participação.'
+};
+
+const loadInitialState = (): AppState => {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            // Ensure we merge with defaults to avoid errors on schema updates
+            return { ...defaultInitialState, ...parsed };
+        }
+    } catch (e) {
+        console.error("Failed to load state from localStorage", e);
+    }
+    return defaultInitialState;
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -232,6 +252,12 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 ...state,
                 appLogo: action.payload
             };
+        case 'UPDATE_PORTAL_TEXT':
+            return {
+                ...state,
+                portalTitle: action.payload.title ?? state.portalTitle,
+                portalSubtitle: action.payload.subtitle ?? state.portalSubtitle,
+            };
         default:
             return state;
     }
@@ -240,7 +266,17 @@ const appReducer = (state: AppState, action: Action): AppState => {
 const AppContext = createContext<{ state: AppState; dispatch: Dispatch<Action> } | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [state, dispatch] = useReducer(appReducer, initialState);
+    const [state, dispatch] = useReducer(appReducer, loadInitialState());
+
+    // Sync state to localStorage whenever it changes
+    useEffect(() => {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        } catch (e) {
+            console.error("Failed to save state to localStorage", e);
+        }
+    }, [state]);
+
     return <AppContext.Provider value={{ state, dispatch }}>{children}</AppContext.Provider>;
 };
 

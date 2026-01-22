@@ -207,9 +207,22 @@ const Events: React.FC = () => {
     const handleParticipantUpload = () => {
         setImportFeedback(null);
 
-        if (!csvFile || !selectedCategory || !selectedEventForParticipants) {
-             setImportFeedback({ type: 'error', message: 'Por favor selecione um ficheiro CSV e uma categoria.' });
-             return;
+        if (!csvFile) {
+            setImportFeedback({ type: 'error', message: 'Por favor, selecione um ficheiro CSV para importar.' });
+            return;
+        }
+
+        if (!selectedCategory) {
+            setImportFeedback({ type: 'error', message: 'Por favor, selecione a categoria para estes participantes.' });
+            return;
+        }
+
+        if (!selectedEventForParticipants) return;
+
+        // Extra check: ensure it's a CSV based on extension
+        if (!csvFile.name.toLowerCase().endsWith('.csv')) {
+            setImportFeedback({ type: 'error', message: 'O ficheiro selecionado não parece ser um CSV válido. Certifique-se que a extensão é .csv.' });
+            return;
         }
 
         const categoryName = state.categories.find(c => c.id === selectedCategory)?.name || 'Desconhecida';
@@ -218,47 +231,51 @@ const Events: React.FC = () => {
             header: true,
             skipEmptyLines: true,
             complete: (results) => {
-                // Validation Logic
+                // 1. Check if headers were detected
                 const headers = results.meta.fields;
-                if (!headers) {
-                    setImportFeedback({ type: 'error', message: 'Erro: Não foi possível ler os cabeçalhos do ficheiro CSV. Verifique se o ficheiro não está corrompido.' });
+                if (!headers || headers.length === 0) {
+                    setImportFeedback({ 
+                        type: 'error', 
+                        message: 'Não foi possível detetar os cabeçalhos do ficheiro. Certifique-se que a primeira linha do CSV contém os nomes das colunas.' 
+                    });
                     return;
                 }
 
+                // 2. Validate mandatory columns
                 const requiredColumns = ['name', 'email'];
                 const missingColumns = requiredColumns.filter(col => !headers.includes(col));
 
                 if (missingColumns.length > 0) {
                     setImportFeedback({ 
                         type: 'error', 
-                        message: `O ficheiro CSV está incompleto. Faltam as seguintes colunas obrigatórias: ${missingColumns.join(', ')}.\n\nColunas detetadas: ${headers.join(', ')}` 
+                        message: `O ficheiro CSV é inválido. Faltam as seguintes colunas obrigatórias: ${missingColumns.join(', ')}.` 
                     });
                     return;
                 }
 
-                // Generate a unique ID for this import batch
+                // 3. Process data
                 const importId = `imp${Date.now()}`;
-
                 const newParticipants: Participant[] = results.data
                 .map((row: any) => ({
                     id: `par${Date.now()}${Math.random()}`,
-                    name: row.name,
-                    email: row.email,
+                    name: row.name?.toString().trim(),
+                    email: row.email?.toString().trim(),
                     eventId: selectedEventForParticipants.id,
                     categoryId: selectedCategory,
-                    importId: importId // Link participant to this specific import
+                    importId: importId 
                 }))
-                .filter(p => p.name && p.email);
+                .filter(p => p.name && p.email); // Only keep valid entries
                 
                 if (newParticipants.length === 0) {
-                    setImportFeedback({ type: 'error', message: 'Não foram encontrados dados válidos. Verifique se as linhas contêm "name" e "email" preenchidos.' });
+                    setImportFeedback({ 
+                        type: 'error', 
+                        message: 'Não foram encontrados dados válidos no ficheiro. Verifique se as linhas contêm o nome e e-mail preenchidos.' 
+                    });
                     return;
                 }
 
-                // Add Participants
+                // 4. Update state
                 dispatch({ type: 'ADD_PARTICIPANTS', payload: newParticipants });
-
-                // Add History Record
                 dispatch({
                     type: 'ADD_IMPORT_HISTORY',
                     payload: {
@@ -272,17 +289,13 @@ const Events: React.FC = () => {
                     }
                 });
 
-                setParticipantModalTab('history'); // Switch to history view to show result
-                // We set feedback AFTER switching tab so it renders in the history tab (if we add logic there) or we reuse the alert logic.
-                // For now, let's reuse the state but maybe display it better.
-                // Or simply:
-                setImportFeedback({ type: 'success', message: `${newParticipants.length} participantes importados com sucesso!` });
-
+                setImportFeedback({ type: 'success', message: `${newParticipants.length} participantes importados com sucesso para a categoria ${categoryName}.` });
+                setParticipantModalTab('history'); 
                 setCsvFile(null);
                 setSearchTerm(''); 
             },
             error: (error: any) => {
-                setImportFeedback({ type: 'error', message: `Erro técnico ao processar o ficheiro CSV: ${error.message}` });
+                setImportFeedback({ type: 'error', message: `Erro ao processar o ficheiro: ${error.message}` });
             }
         });
     };
@@ -358,11 +371,11 @@ const Events: React.FC = () => {
     };
 
     const downloadCsvTemplate = () => {
-        const csvContent = "data:text/csv;charset=utf-8,name,email\nJohn Doe,john.doe@example.com\nJane Smith,jane.smith@example.com";
+        const csvContent = "data:text/csv;charset=utf-8,name,email\nJoão Exemplo,joao@exemplo.com\nMaria Teste,maria@teste.com";
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "participantes_template.csv");
+        link.setAttribute("download", "participantes_exemplo.csv");
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

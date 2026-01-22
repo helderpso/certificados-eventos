@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { useAppContext, THEMES } from '../../context/AppContext';
-import { Check, Monitor, Palette, Sliders, RefreshCw, Image as ImageIcon, Upload, Trash2 } from 'lucide-react';
+import { Check, Monitor, Palette, Sliders, RefreshCw, Image as ImageIcon, Upload, Trash2, Type, FileText } from 'lucide-react';
 import type { ThemeId } from '../../types';
 
 const Settings: React.FC = () => {
@@ -31,6 +31,13 @@ const Settings: React.FC = () => {
 
     const handleRemoveLogo = () => {
         dispatch({ type: 'UPDATE_LOGO', payload: '' });
+    };
+
+    const handlePortalTextUpdate = (field: 'title' | 'subtitle', value: string) => {
+        dispatch({
+            type: 'UPDATE_PORTAL_TEXT',
+            payload: { [field]: value }
+        });
     };
     
     // Helper to allow looping through the static themes plus the dynamic custom one for the cards
@@ -94,6 +101,47 @@ const Settings: React.FC = () => {
                                 Este logótipo substituirá o ícone padrão nas páginas públicas. Recomendamos uma imagem com fundo transparente.
                             </p>
                          </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Public Portal Content Section */}
+            <div className="bg-white rounded-lg shadow overflow-hidden mb-8">
+                <div className="p-6 md:p-8 border-b border-gray-100 bg-gray-50">
+                    <div className="flex items-center">
+                        <div className="h-16 w-16 rounded-full bg-brand-100 flex items-center justify-center text-brand-600">
+                            <Type size={32} />
+                        </div>
+                        <div className="ml-6">
+                            <h3 className="text-xl font-bold text-gray-900">Conteúdo do Portal Público</h3>
+                            <p className="text-gray-500">Personalize os textos principais apresentados aos participantes.</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="p-6 md:p-8 space-y-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                            <Type className="h-4 w-4" /> Título Principal
+                        </label>
+                        <input
+                            type="text"
+                            value={state.portalTitle}
+                            onChange={(e) => handlePortalTextUpdate('title', e.target.value)}
+                            className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-brand-500 focus:border-brand-500 sm:text-sm p-2.5 border"
+                            placeholder="Ex: Portal de Certificados"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                            <FileText className="h-4 w-4" /> Subtítulo / Descrição
+                        </label>
+                        <textarea
+                            rows={3}
+                            value={state.portalSubtitle}
+                            onChange={(e) => handlePortalTextUpdate('subtitle', e.target.value)}
+                            className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-brand-500 focus:border-brand-500 sm:text-sm p-2.5 border"
+                            placeholder="Instruções para o utilizador encontrar o seu certificado..."
+                        />
                     </div>
                 </div>
             </div>

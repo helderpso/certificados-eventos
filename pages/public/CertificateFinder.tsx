@@ -99,8 +99,8 @@ const CertificateFinder: React.FC = () => {
                         </div>
                     )}
 
-                    <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mt-4">Portal de Certificados</h1>
-                    <p className="text-gray-600 mt-2">Insira o seu e-mail para encontrar e descarregar os seus certificados de participação.</p>
+                    <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mt-4">{state.portalTitle}</h1>
+                    <p className="text-gray-600 mt-2">{state.portalSubtitle}</p>
                     
                     <form onSubmit={handleSearch} className="mt-8 max-w-lg mx-auto" noValidate>
                         <div className="flex flex-col gap-2">
