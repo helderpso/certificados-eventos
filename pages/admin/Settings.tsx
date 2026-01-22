@@ -61,7 +61,7 @@ const Settings: React.FC = () => {
                     app_logo: state.appLogo,
                     custom_colors: state.customTheme.colors,
                     updated_at: new Date().toISOString()
-                }, { onConflict: 'user_id' });
+                });
 
             if (error) throw error;
 
@@ -69,7 +69,12 @@ const Settings: React.FC = () => {
             setTimeout(() => setSaveSuccess(false), 3000);
         } catch (err: any) {
             console.error("Erro detalhado:", err);
-            alert(`Erro ao guardar: ${err.message || 'Verifique se executou o script SQL no Supabase.'}`);
+            const msg = err.message || "Erro desconhecido";
+            if (msg.includes("custom_colors")) {
+                alert("Erro: A coluna 'custom_colors' não existe. Por favor, execute o comando SQL de correção no painel do Supabase.");
+            } else {
+                alert(`Erro ao guardar: ${msg}`);
+            }
         } finally {
             setIsSaving(false);
         }
@@ -109,7 +114,7 @@ const Settings: React.FC = () => {
                         </div>
                         <div className="ml-6">
                             <h3 className="text-xl font-bold text-gray-900">Identidade Visual</h3>
-                            <p className="text-gray-500">Logótipo apresentado em todo o portal.</p>
+                            <p className="text-gray-500">O logótipo configurado será visível para todos os utilizadores.</p>
                         </div>
                     </div>
                 </div>
@@ -129,7 +134,7 @@ const Settings: React.FC = () => {
                                 ) : (
                                     <div className="text-center p-4">
                                         <ImageIcon className="mx-auto h-8 w-8 text-gray-400 mb-2" />
-                                        <p className="text-xs text-gray-500">Sem logo</p>
+                                        <p className="text-xs text-gray-500">Sem logo definido</p>
                                     </div>
                                 )}
                             </div>
@@ -141,6 +146,7 @@ const Settings: React.FC = () => {
                                 Escolher Imagem
                                 <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
                             </label>
+                            <p className="mt-2 text-xs text-gray-400">Recomendado: PNG transparente ou SVG.</p>
                          </div>
                     </div>
                 </div>
@@ -153,8 +159,8 @@ const Settings: React.FC = () => {
                             <Type size={32} />
                         </div>
                         <div className="ml-6">
-                            <h3 className="text-xl font-bold text-gray-900">Conteúdo do Portal</h3>
-                            <p className="text-gray-500">Textos públicos apresentados aos utilizadores.</p>
+                            <h3 className="text-xl font-bold text-gray-900">Conteúdo do Portal Público</h3>
+                            <p className="text-gray-500">Textos que os participantes verão ao procurar certificados.</p>
                         </div>
                     </div>
                 </div>
@@ -187,8 +193,8 @@ const Settings: React.FC = () => {
                             <Monitor size={32} />
                         </div>
                         <div className="ml-6">
-                            <h3 className="text-xl font-bold text-gray-900">Tema e Cores</h3>
-                            <p className="text-gray-500">Escolha um dos temas pré-definidos ou crie o seu.</p>
+                            <h3 className="text-xl font-bold text-gray-900">Esquema de Cores</h3>
+                            <p className="text-gray-500">A cor selecionada será aplicada em todos os dispositivos.</p>
                         </div>
                     </div>
                 </div>
@@ -221,18 +227,27 @@ const Settings: React.FC = () => {
             </div>
 
             {state.currentTheme === 'custom' && (
-                <div className="bg-white rounded-lg shadow overflow-hidden border border-brand-200 animate-fadeIn mb-10 p-6 grid grid-cols-1 md:grid-cols-5 gap-4">
-                    {(['50', '100', '500', '600', '700'] as const).map((shade) => (
-                        <div key={shade}>
-                            <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Tom {shade}</label>
-                            <input 
-                                type="color" 
-                                value={state.customTheme.colors[shade]}
-                                onChange={(e) => handleCustomColorChange(shade, e.target.value)}
-                                className="w-full h-10 rounded cursor-pointer border-0"
-                            />
-                        </div>
-                    ))}
+                <div className="bg-white rounded-lg shadow overflow-hidden border border-brand-200 animate-fadeIn mb-10 p-6">
+                    <h3 className="text-sm font-bold text-gray-700 mb-4 uppercase tracking-wider">Ajuste Fino de Cores</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                        {(['50', '100', '500', '600', '700'] as const).map((shade) => (
+                            <div key={shade}>
+                                <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Shade {shade}</label>
+                                <input 
+                                    type="color" 
+                                    value={state.customTheme.colors[shade]}
+                                    onChange={(e) => handleCustomColorChange(shade, e.target.value)}
+                                    className="w-full h-10 rounded cursor-pointer border-0 p-0"
+                                />
+                                <input 
+                                    type="text" 
+                                    value={state.customTheme.colors[shade]}
+                                    onChange={(e) => handleCustomColorChange(shade, e.target.value)}
+                                    className="w-full mt-1 text-[10px] text-center font-mono border-gray-200 rounded p-1"
+                                />
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
             
@@ -243,7 +258,7 @@ const Settings: React.FC = () => {
                     className="flex items-center gap-2 px-8 py-4 bg-brand-600 text-white rounded-full font-bold shadow-2xl hover:bg-brand-700 active:scale-95 transition-all disabled:opacity-50"
                 >
                     {isSaving ? <Loader2 className="animate-spin h-6 w-6" /> : saveSuccess ? <Check className="h-6 w-6" /> : <Save className="h-6 w-6" />}
-                    {isSaving ? 'A Guardar...' : saveSuccess ? 'Definições Guardadas!' : 'Guardar na Nuvem'}
+                    {isSaving ? 'A Sincronizar...' : saveSuccess ? 'Definições Guardadas!' : 'Guardar e Sincronizar'}
                 </button>
             </div>
         </div>
