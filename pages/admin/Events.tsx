@@ -40,18 +40,18 @@ const Events: React.FC = () => {
     const sortedEvents = useMemo(() => [...state.events].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [state.events]);
     const filteredParticipants = useMemo(() => {
         if (!selectedEventForParticipants) return [];
-        let p = state.participants.filter(x => x.eventId === selectedEventForParticipants.id);
+        let p = state.participants.filter(x => String(x.eventId) === String(selectedEventForParticipants.id));
         if (searchTerm) p = p.filter(x => x.name.toLowerCase().includes(searchTerm.toLowerCase()) || x.email.toLowerCase().includes(searchTerm.toLowerCase()));
         return p.sort((a, b) => a.name.localeCompare(b.name));
     }, [state.participants, selectedEventForParticipants, searchTerm]);
 
     const paginatedParticipants = useMemo(() => filteredParticipants.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage), [filteredParticipants, currentPage]);
-    const filteredHistory = useMemo(() => selectedEventForParticipants ? state.importHistory.filter(h => h.eventId === selectedEventForParticipants.id) : [], [state.importHistory, selectedEventForParticipants]);
+    const filteredHistory = useMemo(() => selectedEventForParticipants ? state.importHistory.filter(h => String(h.eventId) === String(selectedEventForParticipants.id)) : [], [state.importHistory, selectedEventForParticipants]);
 
     const handleDownload = async (p: Participant) => {
         if (!selectedEventForParticipants) return;
-        const template = state.templates.find(t => t.categoryId === p.categoryId);
-        if (!template) return alert("Nenhum modelo para esta categoria.");
+        const template = state.templates.find(t => String(t.categoryId) === String(p.categoryId));
+        if (!template) return alert("Nenhum modelo configurado para esta categoria de participante.");
 
         setIsDownloading(p.id);
         setTempCert({ participant: p, event: selectedEventForParticipants, template });
@@ -65,7 +65,6 @@ const Events: React.FC = () => {
                     await imgElement.decode().catch(() => {});
                 }
 
-                // EQUILÍBRIO QUALIDADE/PESO: Scale 3.5 (~4000px de largura)
                 const canvas = await html2canvas(downloadRef.current, { 
                     scale: 3.5, 
                     useCORS: true, 
@@ -74,21 +73,20 @@ const Events: React.FC = () => {
                     imageTimeout: 0
                 });
 
-                // JPEG 0.95 é indistinguível de PNG mas 10x mais leve
                 const imgData = canvas.toDataURL('image/jpeg', 0.95); 
                 
                 const pdf = new jsPDF({ 
                     orientation: 'landscape', 
                     unit: 'px', 
                     format: [canvas.width, canvas.height],
-                    compress: true // Ativar compressão de stream para reduzir peso do PDF
+                    compress: true
                 });
 
                 pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height, undefined, 'FAST');
                 pdf.save(`Certificado_${p.name.replace(/\s/g, '_')}.pdf`);
             } catch (err) { 
                 console.error("Erro PDF:", err);
-                alert("Erro ao gerar PDF otimizado."); 
+                alert("Erro ao gerar PDF."); 
             }
             finally { setIsDownloading(null); setTempCert(null); }
         }, 1500);
@@ -97,7 +95,7 @@ const Events: React.FC = () => {
     const handleImport = () => {
         if (!csvFile || !selectedCategory || !selectedEventForParticipants) return;
         setIsActionLoading(true);
-        const cat = state.categories.find(c => c.id === selectedCategory);
+        const cat = state.categories.find(c => String(c.id) === String(selectedCategory));
         
         Papa.parse(csvFile, {
             header: true, 
@@ -111,7 +109,6 @@ const Events: React.FC = () => {
                         const email = row.email || row['e-mail'] || row.Email || row['E-MAIL'] || row.Email_Address;
                         
                         return { 
-                            id: crypto.randomUUID(), 
                             name: name?.trim(), 
                             email: email?.trim(), 
                             event_id: selectedEventForParticipants.id, 
@@ -133,7 +130,11 @@ const Events: React.FC = () => {
                     });
                     if (hErr) throw hErr;
 
-                    const { error: pErr } = await supabase.from('participants').insert(batch);
+                    const { data: insertedData, error: pErr } = await supabase
+                        .from('participants')
+                        .insert(batch)
+                        .select();
+
                     if (pErr) throw pErr;
 
                     dispatch({ 
@@ -151,13 +152,13 @@ const Events: React.FC = () => {
                     
                     dispatch({ 
                         type: 'ADD_PARTICIPANTS', 
-                        payload: batch.map(b => ({ 
-                            id: b.id, 
-                            name: b.name, 
-                            email: b.email, 
-                            eventId: b.event_id, 
-                            categoryId: b.category_id, 
-                            importId: b.import_id 
+                        payload: insertedData.map(p => ({ 
+                            id: p.id, 
+                            name: p.name, 
+                            email: p.email, 
+                            eventId: p.event_id, 
+                            categoryId: p.category_id, 
+                            importId: p.import_id 
                         })) 
                     });
 
@@ -177,10 +178,26 @@ const Events: React.FC = () => {
         if (!editingParticipant) return;
         setIsActionLoading(true);
         try {
-            const updated: Participant = { ...editingParticipant, name: editName, categoryId: editCategory };
-            const { error } = await supabase.from('participants').update({ name: editName, category_id: editCategory }).eq('id', editingParticipant.id);
+            const { data, error } = await supabase
+                .from('participants')
+                .update({ name: editName, category_id: editCategory })
+                .eq('id', editingParticipant.id)
+                .select()
+                .single();
+
             if (error) throw error;
-            dispatch({ type: 'UPDATE_PARTICIPANT', payload: updated });
+
+            dispatch({ 
+                type: 'UPDATE_PARTICIPANT', 
+                payload: {
+                    id: data.id,
+                    name: data.name,
+                    email: data.email,
+                    eventId: data.event_id,
+                    categoryId: data.category_id,
+                    importId: data.import_id
+                } 
+            });
             setIsEditParticipantModalOpen(false);
         } catch (err: any) {
             alert("Erro ao atualizar participante: " + err.message);
@@ -269,7 +286,7 @@ const Events: React.FC = () => {
                                     <div className="flex flex-col sm:flex-row gap-4 mb-4">
                                         <div className="relative flex-1">
                                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18}/>
-                                            <input type="text" placeholder="Procurar por nome ou email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-brand-500 transition" />
+                                            <input type="text" placeholder="Procurar por nome ou email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-brand-500 transition outline-none" />
                                         </div>
                                     </div>
                                     <div className="border rounded-2xl overflow-hidden bg-white">
@@ -289,19 +306,19 @@ const Events: React.FC = () => {
                                                         <td className="px-6 py-4 text-gray-500 text-sm">{p.email}</td>
                                                         <td className="px-6 py-4">
                                                             <span className="px-2 py-1 bg-brand-50 text-brand-700 text-[9px] font-black rounded uppercase border border-brand-100">
-                                                                {state.categories.find(c => c.id === p.categoryId)?.name || 'N/A'}
+                                                                {state.categories.find(c => String(c.id) === String(p.categoryId))?.name || 'N/A'}
                                                             </span>
                                                         </td>
                                                         <td className="px-6 py-4 text-right flex justify-end gap-1">
-                                                            <button onClick={() => handleDownload(p)} disabled={isDownloading === p.id} className="p-2 text-brand-600 hover:bg-brand-50 rounded-lg" title="Baixar PDF Otimizado">
+                                                            <button onClick={() => handleDownload(p)} disabled={isDownloading === p.id} className="p-2 text-brand-600 hover:bg-brand-50 rounded-lg transition" title="Baixar PDF Otimizado">
                                                                 {isDownloading === p.id ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18}/>}
                                                             </button>
-                                                            <button onClick={() => { setEditingParticipant(p); setEditName(p.name); setEditCategory(p.categoryId); setIsEditParticipantModalOpen(true); }} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit size={18}/></button>
-                                                            <button onClick={() => setDeleteConfig({ isOpen: true, type: 'participant', id: p.id, title: 'Remover', message: 'Deseja remover este participante?' })} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={18}/></button>
+                                                            <button onClick={() => { setEditingParticipant(p); setEditName(p.name); setEditCategory(String(p.categoryId)); setIsEditParticipantModalOpen(true); }} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"><Edit size={18}/></button>
+                                                            <button onClick={() => setDeleteConfig({ isOpen: true, type: 'participant', id: p.id, title: 'Remover', message: 'Deseja remover este participante?' })} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"><Trash2 size={18}/></button>
                                                         </td>
                                                     </tr>
                                                 ))}
-                                                {!filteredParticipants.length && <tr><td colSpan={4} className="py-20 text-center text-gray-400">Nenhum participante encontrado.</td></tr>}
+                                                {!filteredParticipants.length && <tr><td colSpan={4} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">Nenhum participante encontrado.</td></tr>}
                                             </tbody>
                                         </table>
                                     </div>
@@ -309,8 +326,8 @@ const Events: React.FC = () => {
                                         <div className="flex justify-between items-center px-2">
                                             <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Página {currentPage} de {Math.ceil(filteredParticipants.length/itemsPerPage)}</p>
                                             <div className="flex gap-2">
-                                                <button disabled={currentPage === 1} onClick={() => setCurrentPage(c => c-1)} className="p-2 border rounded-lg disabled:opacity-20"><ChevronLeft size={20}/></button>
-                                                <button disabled={currentPage * itemsPerPage >= filteredParticipants.length} onClick={() => setCurrentPage(c => c+1)} className="p-2 border rounded-lg disabled:opacity-20"><ChevronRight size={20}/></button>
+                                                <button disabled={currentPage === 1} onClick={() => setCurrentPage(c => c-1)} className="p-2 border rounded-lg disabled:opacity-20 transition"><ChevronLeft size={20}/></button>
+                                                <button disabled={currentPage * itemsPerPage >= filteredParticipants.length} onClick={() => setCurrentPage(c => c+1)} className="p-2 border rounded-lg disabled:opacity-20 transition"><ChevronRight size={20}/></button>
                                             </div>
                                         </div>
                                     )}
@@ -320,7 +337,7 @@ const Events: React.FC = () => {
                             {participantModalTab === 'import' && (
                                 <div className="max-w-xl mx-auto py-10 space-y-6">
                                     {importFeedback && (
-                                        <div className={`p-4 rounded-2xl flex items-center gap-3 border ${importFeedback.type === 'success' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
+                                        <div className={`p-4 rounded-2xl flex items-center gap-3 border animate-fadeIn ${importFeedback.type === 'success' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
                                             {importFeedback.type === 'success' ? <CheckCircle2/> : <AlertTriangle/>}
                                             <p className="font-bold text-sm">{importFeedback.message}</p>
                                         </div>
@@ -328,22 +345,22 @@ const Events: React.FC = () => {
                                     <div className="space-y-4">
                                         <label className="block">
                                             <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 block">1. Categoria do Lote</span>
-                                            <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full bg-white border-2 border-gray-100 rounded-xl p-3 focus:border-brand-500 outline-none transition">
+                                            <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full bg-white border-2 border-gray-100 rounded-xl p-3 focus:border-brand-500 outline-none transition font-medium">
                                                 <option value="">Escolher Categoria...</option>
                                                 {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                             </select>
                                         </label>
                                         <label className="block">
                                             <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 block">2. Ficheiro CSV</span>
-                                            <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-brand-400 transition cursor-pointer relative bg-white">
+                                            <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-brand-400 transition cursor-pointer relative bg-white group">
                                                 <input type="file" accept=".csv" onChange={e => setCsvFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
-                                                <FileSpreadsheet className="mx-auto text-gray-300 mb-2" size={40} />
+                                                <FileSpreadsheet className="mx-auto text-gray-300 group-hover:text-brand-500 transition mb-2" size={40} />
                                                 <p className="text-sm font-bold text-gray-600">{csvFile ? csvFile.name : 'Clique ou arraste o seu ficheiro .csv'}</p>
-                                                <p className="text-[10px] text-gray-400 mt-2 italic">O sistema deteta automaticamente colunas 'name', 'email' ou variações em PT.</p>
+                                                <p className="text-[10px] text-gray-400 mt-2 italic font-medium uppercase tracking-widest">O sistema deteta automaticamente colunas 'name', 'email'.</p>
                                             </div>
                                         </label>
                                         <button onClick={handleImport} disabled={isActionLoading || !csvFile || !selectedCategory} className="w-full bg-brand-600 text-white p-4 rounded-2xl font-black shadow-xl hover:bg-brand-700 transition flex items-center justify-center gap-2">
-                                            {isActionLoading ? <Loader2 className="animate-spin" /> : 'Processar Ficheiro'}
+                                            {isActionLoading ? <Loader2 className="animate-spin" /> : 'Processar e Importar'}
                                         </button>
                                     </div>
                                 </div>
@@ -352,9 +369,9 @@ const Events: React.FC = () => {
                             {participantModalTab === 'history' && (
                                 <div className="space-y-3">
                                     {filteredHistory.map(h => (
-                                        <div key={h.id} className="bg-white border p-4 rounded-2xl flex justify-between items-center shadow-sm">
+                                        <div key={h.id} className="bg-white border p-4 rounded-2xl flex justify-between items-center shadow-sm hover:border-brand-300 transition group">
                                             <div className="flex items-center gap-4">
-                                                <div className="bg-blue-50 text-blue-600 p-3 rounded-xl"><History size={20}/></div>
+                                                <div className="bg-blue-50 text-blue-600 p-3 rounded-xl group-hover:bg-brand-50 group-hover:text-brand-600 transition"><History size={20}/></div>
                                                 <div>
                                                     <p className="font-bold text-gray-800">{h.fileName}</p>
                                                     <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{new Date(h.date).toLocaleString()} • {h.categoryName}</p>
@@ -369,7 +386,7 @@ const Events: React.FC = () => {
                                             </div>
                                         </div>
                                     ))}
-                                    {!filteredHistory.length && <div className="py-20 text-center text-gray-300 font-bold">Sem histórico para este evento.</div>}
+                                    {!filteredHistory.length && <div className="py-20 text-center text-gray-300 font-bold uppercase tracking-widest text-xs">Sem histórico para este evento.</div>}
                                 </div>
                             )}
                         </div>
@@ -384,11 +401,11 @@ const Events: React.FC = () => {
                         <form onSubmit={handleUpdateParticipant} className="space-y-5">
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Nome Completo</label>
-                                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium" />
+                                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Categoria</label>
-                                <select value={editCategory} onChange={e => setEditCategory(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium">
+                                <select value={editCategory} onChange={e => setEditCategory(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none">
                                     {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                 </select>
                             </div>
@@ -404,15 +421,29 @@ const Events: React.FC = () => {
             )}
 
             {isEventModalOpen && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-xl">
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl">
                         <h3 className="text-2xl font-black mb-6">{currentEvent ? 'Editar Evento' : 'Novo Evento'}</h3>
-                        <form onSubmit={async (e) => { e.preventDefault(); setIsActionLoading(true); try { const ev = { id: currentEvent?.id || crypto.randomUUID(), name: eventName, date: eventDate }; const { error } = await supabase.from('events').upsert(ev); if (error) throw error; currentEvent ? dispatch({ type: 'UPDATE_EVENT', payload: ev }) : dispatch({ type: 'ADD_EVENT', payload: ev }); setIsEventModalOpen(false); } catch(err: any){alert(err.message);} finally {setIsActionLoading(false);} }} className="space-y-4">
-                            <input type="text" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="Nome do Evento" required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500" />
-                            <input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500" />
+                        <form onSubmit={async (e) => { 
+                            e.preventDefault(); 
+                            setIsActionLoading(true); 
+                            try { 
+                                const ev = { 
+                                    ...(currentEvent?.id ? { id: currentEvent.id } : {}), 
+                                    name: eventName, 
+                                    date: eventDate 
+                                }; 
+                                const { data, error } = await supabase.from('events').upsert(ev).select().single(); 
+                                if (error) throw error; 
+                                currentEvent ? dispatch({ type: 'UPDATE_EVENT', payload: data }) : dispatch({ type: 'ADD_EVENT', payload: data }); 
+                                setIsEventModalOpen(false); 
+                            } catch(err: any){alert(err.message);} finally {setIsActionLoading(false);} 
+                        }} className="space-y-4">
+                            <input type="text" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="Nome do Evento" required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 transition outline-none" />
+                            <input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 transition outline-none" />
                             <div className="flex gap-2 pt-6">
-                                <button type="button" onClick={() => setIsEventModalOpen(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">Cancelar</button>
-                                <button type="submit" className="flex-1 py-3 bg-brand-600 text-white rounded-xl font-black shadow-lg">Guardar</button>
+                                <button type="button" onClick={() => setIsEventModalOpen(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Cancelar</button>
+                                <button type="submit" className="flex-1 py-3 bg-brand-600 text-white rounded-xl font-black shadow-lg hover:bg-brand-700 transition">Guardar</button>
                             </div>
                         </form>
                     </div>
@@ -426,14 +457,13 @@ const Events: React.FC = () => {
                         <h3 className="text-xl font-black text-gray-900">{deleteConfig.title}</h3>
                         <p className="text-sm text-gray-500 my-4 leading-relaxed">{deleteConfig.message}</p>
                         <div className="flex gap-3 mt-8">
-                            <button onClick={() => setDeleteConfig({ ...deleteConfig, isOpen: false })} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">Não</button>
-                            <button onClick={confirmDeleteAction} disabled={isActionLoading} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-black shadow-lg">Sim, Apagar</button>
+                            <button onClick={() => setDeleteConfig({ ...deleteConfig, isOpen: false })} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Não</button>
+                            <button onClick={confirmDeleteAction} disabled={isActionLoading} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-black shadow-lg hover:bg-red-700 transition">Sim, Apagar</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Container invisível para captura HD */}
             <div className="absolute opacity-0 pointer-events-none" style={{ top: '-10000px', left: '-10000px' }}>
                 {tempCert && <div ref={downloadRef}><CertificatePreview certificate={tempCert} /></div>}
             </div>
