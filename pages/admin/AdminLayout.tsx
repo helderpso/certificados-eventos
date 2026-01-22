@@ -17,11 +17,12 @@ const AdminLayout: React.FC = () => {
 
     const handleLogout = async () => {
         try {
-            await supabase.auth.signOut();
-            dispatch({ type: 'LOGOUT' });
+            const { error } = await supabase.auth.signOut();
+            if (error) throw error;
+            // The onAuthStateChange listener in AppContext will handle the dispatch({ type: 'LOGOUT' })
         } catch (error) {
             console.error("Erro ao sair:", error);
-            // Mesmo com erro no server, limpamos o estado local
+            // Fallback: force local logout even if server call fails
             dispatch({ type: 'LOGOUT' });
         }
     };

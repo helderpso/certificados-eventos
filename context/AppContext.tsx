@@ -87,7 +87,13 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case 'LOGIN':
             return { ...state, isAuthenticated: true, currentUser: action.payload || state.currentUser };
         case 'LOGOUT':
-            return { ...defaultInitialState, isLoading: false };
+            // Crucial: preserve visual settings on logout
+            return { 
+                ...state, 
+                isAuthenticated: false, 
+                currentUser: defaultInitialState.currentUser,
+                isLoading: false 
+            };
         case 'ADD_EVENT':
             return { ...state, events: [...state.events, action.payload] };
         case 'UPDATE_EVENT':
@@ -144,30 +150,32 @@ const AppContext = createContext<{ state: AppState; dispatch: Dispatch<Action> }
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [state, dispatch] = useReducer(appReducer, defaultInitialState);
 
-    // Initial Load and Auth Listener
+    // Initial Load
     useEffect(() => {
         const loadInitialData = async () => {
             dispatch({ type: 'SET_LOADING', payload: true });
             
-            // Listen for auth changes (Signed Out event)
-            supabase.auth.onAuthStateChange((event, session) => {
-                if (event === 'SIGNED_OUT') {
-                    dispatch({ type: 'LOGOUT' });
-                }
-            });
-
+            // 1. Fetch current session immediately
             const { data: { session } } = await supabase.auth.getSession();
             
-            // Public settings (always load)
+            // 2. Fetch public app settings (Source of truth for theme/titles)
             const { data: settings } = await supabase.from('app_settings').select('*').maybeSingle();
-            const { data: events } = await supabase.from('events').select('*');
-            const { data: categories } = await supabase.from('categories').select('*');
-            const { data: templates } = await supabase.from('templates').select('*');
+            
+            // 3. Fetch other entities
+            const [eventsRes, categoriesRes, templatesRes, participantsRes, historyRes] = await Promise.all([
+                supabase.from('events').select('*'),
+                supabase.from('categories').select('*'),
+                supabase.from('templates').select('*'),
+                supabase.from('participants').select('*'),
+                supabase.from('import_history').select('*')
+            ]);
 
             const initialStateUpdate: Partial<AppState> = {
-                events: events || [],
-                categories: categories || [],
-                templates: templates?.map(t => ({
+                events: eventsRes.data || [],
+                categories: categoriesRes.data || [],
+                importHistory: historyRes.data || [],
+                participants: participantsRes.data || [],
+                templates: templatesRes.data?.map(t => ({
                     id: t.id,
                     name: t.name,
                     categoryId: t.category_id,
@@ -194,6 +202,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         };
 
         loadInitialData();
+    }, []);
+
+    // Dedicated Auth Listener to handle session sync (Logout/Login from other tabs or actions)
+    useEffect(() => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_OUT') {
+                dispatch({ type: 'LOGOUT' });
+            } else if (event === 'SIGNED_IN' && session) {
+                dispatch({ 
+                    type: 'LOGIN', 
+                    payload: { 
+                        name: session.user.user_metadata.full_name || 'Admin', 
+                        email: session.user.email!, 
+                        password: '' 
+                    } 
+                });
+            }
+        });
+
+        return () => {
+            subscription.unsubscribe();
+        };
     }, []);
 
     return <AppContext.Provider value={{ state, dispatch }}>{children}</AppContext.Provider>;
