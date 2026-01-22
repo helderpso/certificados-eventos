@@ -15,7 +15,6 @@ const Events: React.FC = () => {
     const [isParticipantModalOpen, setIsParticipantModalOpen] = useState(false);
     const [isActionLoading, setIsActionLoading] = useState(false);
     
-    // Unified Delete Confirmation State
     const [deleteConfig, setDeleteConfig] = useState<{
         isOpen: boolean;
         type: 'event' | 'participant' | 'import' | null;
@@ -75,7 +74,6 @@ const Events: React.FC = () => {
         return state.importHistory.filter(h => h.eventId === selectedEventForParticipants.id);
     }, [state.importHistory, selectedEventForParticipants]);
 
-    const totalPages = Math.ceil(filteredParticipants.length / itemsPerPage);
     const paginatedParticipants = useMemo(() => {
         const startIndex = (currentPage - 1) * itemsPerPage;
         return filteredParticipants.slice(startIndex, startIndex + itemsPerPage);
@@ -98,7 +96,7 @@ const Events: React.FC = () => {
         setIsActionLoading(true);
         try {
             const eventData = {
-                id: currentEvent?.id || `evt${Date.now()}`,
+                id: currentEvent?.id || crypto.randomUUID(),
                 name: eventName,
                 date: eventDate
             };
@@ -134,7 +132,6 @@ const Events: React.FC = () => {
                 if (!error) dispatch({ type: 'DELETE_PARTICIPANT', payload: id });
             } else if (type === 'import') {
                 ({ error } = await supabase.from('import_history').delete().eq('id', id));
-                // Note: supabase RLS or CASCADE should handle participants, but for safety:
                 await supabase.from('participants').delete().eq('importId', id);
                 if (!error) dispatch({ type: 'DELETE_IMPORT', payload: id });
             }
@@ -161,10 +158,10 @@ const Events: React.FC = () => {
             skipEmptyLines: true,
             complete: async (results) => {
                 try {
-                    const importId = `imp${Date.now()}`;
+                    const importId = crypto.randomUUID();
                     const newParticipants = results.data
                         .map((row: any) => ({
-                            id: `par${Date.now()}${Math.random()}`,
+                            id: crypto.randomUUID(),
                             name: row.name?.toString().trim(),
                             email: row.email?.toString().trim(),
                             eventId: selectedEventForParticipants.id,
@@ -175,7 +172,6 @@ const Events: React.FC = () => {
 
                     if (newParticipants.length === 0) throw new Error("Nenhum dado válido no CSV.");
 
-                    // Save to Supabase
                     const { error: pError } = await supabase.from('participants').insert(newParticipants);
                     if (pError) throw pError;
 
@@ -204,25 +200,6 @@ const Events: React.FC = () => {
                 }
             }
         });
-    };
-
-    const handleDownloadCertificate = (participant: Participant, template: Template) => {
-        if (!selectedEventForParticipants) return;
-        setTempCertForDownload({ participant, event: selectedEventForParticipants, template });
-        setDownloadingId(participant.id);
-        setTimeout(async () => {
-            const element = downloadPreviewRef.current;
-            if (!element) return;
-            try {
-                const canvas = await html2canvas(element, { scale: 2, useCORS: true });
-                const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [canvas.width, canvas.height] });
-                pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
-                pdf.save(`Certificado_${participant.name}.pdf`);
-            } finally {
-                setDownloadingId(null);
-                setTempCertForDownload(null);
-            }
-        }, 500);
     };
 
     return (
@@ -270,7 +247,6 @@ const Events: React.FC = () => {
                 </ul>
             </div>
 
-            {/* Event Modal */}
             {isEventModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
@@ -289,7 +265,6 @@ const Events: React.FC = () => {
                 </div>
             )}
 
-            {/* Delete Modal */}
             {deleteConfig.isOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-xl p-6 max-w-sm w-full text-center">
@@ -306,7 +281,6 @@ const Events: React.FC = () => {
                 </div>
             )}
 
-            {/* Participant Modal (Simplified for logic) */}
             {isParticipantModalOpen && selectedEventForParticipants && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-lg w-full max-w-5xl h-[85vh] flex flex-col">
@@ -332,11 +306,16 @@ const Events: React.FC = () => {
                             )}
                             {participantModalTab === 'import' && (
                                 <div className="max-w-md mx-auto space-y-4">
+                                    {importFeedback && (
+                                        <div className={`p-3 rounded-lg text-sm border ${importFeedback.type === 'success' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                                            {importFeedback.message}
+                                        </div>
+                                    )}
                                     <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full border p-2 rounded">
                                         <option value="">Categoria...</option>
                                         {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </select>
-                                    <input type="file" onChange={e => setCsvFile(e.target.files?.[0] || null)} className="w-full" />
+                                    <input type="file" accept=".csv" onChange={e => setCsvFile(e.target.files?.[0] || null)} className="w-full" />
                                     <button onClick={handleParticipantUpload} disabled={isActionLoading} className="w-full bg-brand-600 text-white p-3 rounded-lg">
                                         {isActionLoading ? <Loader2 className="animate-spin mx-auto"/> : 'Importar'}
                                     </button>

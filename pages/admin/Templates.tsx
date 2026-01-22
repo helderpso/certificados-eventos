@@ -49,7 +49,7 @@ const Templates: React.FC = () => {
         setIsActionLoading(true);
         try {
             const catData = {
-                id: currentCategory?.id || `cat${Date.now()}`,
+                id: currentCategory?.id || crypto.randomUUID(),
                 name: categoryName
             };
             const { error } = await supabase.from('categories').upsert(catData);
@@ -78,9 +78,9 @@ const Templates: React.FC = () => {
         setIsActionLoading(true);
         try {
             const tplData = {
-                id: currentTemplate?.id || `tpl${Date.now()}`,
+                id: currentTemplate?.id || crypto.randomUUID(),
                 name: templateName,
-                category_id: templateCategory, // Database uses underscore
+                category_id: templateCategory,
                 background_image: templateImage,
                 text_content: templateText
             };
@@ -132,7 +132,6 @@ const Templates: React.FC = () => {
 
     return (
         <div className="space-y-10">
-            {/* Categories */}
             <section>
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-bold">Categorias</h2>
@@ -153,7 +152,6 @@ const Templates: React.FC = () => {
                 </div>
             </section>
 
-            {/* Templates */}
             <section>
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-bold">Modelos</h2>
@@ -193,7 +191,6 @@ const Templates: React.FC = () => {
                 </div>
             </section>
 
-            {/* Category Modal */}
             {isCategoryModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-xl p-6 w-full max-w-md">
@@ -211,7 +208,6 @@ const Templates: React.FC = () => {
                 </div>
             )}
 
-            {/* Template Modal */}
             {isTemplateModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
@@ -252,20 +248,18 @@ const Templates: React.FC = () => {
                 </div>
             )}
 
-            {/* Preview Modal */}
             {isPreviewModalOpen && templateToPreview && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4" onClick={() => setIsPreviewModalOpen(false)}>
                     <div className="bg-white rounded-xl shadow-2xl p-4 scale-50 md:scale-75 lg:scale-90" onClick={e => e.stopPropagation()}>
                         <CertificatePreview certificate={{
-                            event: { id: 'p', name: 'Evento Demo', date: new Date().toISOString() },
-                            participant: { id: 'p', name: 'Nome do Participante', email: 'a@a.pt', eventId: 'p', categoryId: templateToPreview.categoryId },
+                            event: { id: crypto.randomUUID(), name: 'Evento Demo', date: new Date().toISOString() },
+                            participant: { id: crypto.randomUUID(), name: 'Nome do Participante', email: 'a@a.pt', eventId: 'p', categoryId: templateToPreview.categoryId },
                             template: templateToPreview
                         }} />
                     </div>
                 </div>
             )}
 
-            {/* Delete Confirmation */}
             {deleteConfig.isOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4">
                     <div className="bg-white rounded-xl p-6 w-full max-w-sm text-center">
