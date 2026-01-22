@@ -76,7 +76,7 @@ const defaultInitialState: AppState = {
     appLogo: '',
     portalTitle: 'Portal de Certificados',
     portalSubtitle: 'Insira o seu e-mail para encontrar e descarregar os seus certificados de participação.',
-    portalMetaTitle: '', // Set to empty initially to avoid flicker
+    portalMetaTitle: '', 
     isLoading: true
 };
 
@@ -156,73 +156,87 @@ const AppContext = createContext<{ state: AppState; dispatch: Dispatch<Action> }
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [state, dispatch] = useReducer(appReducer, defaultInitialState);
 
-    // Initial Load
     useEffect(() => {
         const loadInitialData = async () => {
             dispatch({ type: 'SET_LOADING', payload: true });
             
-            const { data: { session } } = await supabase.auth.getSession();
-            const { data: settings } = await supabase.from('app_settings').select('*').maybeSingle();
-            
-            const [eventsRes, categoriesRes, templatesRes, participantsRes, historyRes] = await Promise.all([
-                supabase.from('events').select('*'),
-                supabase.from('categories').select('*'),
-                supabase.from('templates').select('*'),
-                supabase.from('participants').select('*'),
-                supabase.from('import_history').select('*')
-            ]);
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                const { data: settings, error: settingsError } = await supabase.from('app_settings').select('*').maybeSingle();
+                
+                if (settingsError) console.warn("Supabase: Erro ao carregar definições. Verifique RLS em 'app_settings'.", settingsError);
 
-            const initialStateUpdate: Partial<AppState> = {
-                events: eventsRes.data || [],
-                categories: categoriesRes.data || [],
-                importHistory: historyRes.data?.map(h => ({
-                    id: h.id,
-                    date: h.created_at || h.date, // Tenta created_at (padrão) ou fallback para date
-                    fileName: h.file_name,
-                    count: h.count,
-                    eventId: h.event_id,
-                    categoryName: h.category_name,
-                    status: h.status
-                })) || [],
-                participants: participantsRes.data?.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    email: p.email,
-                    eventId: p.event_id,
-                    categoryId: p.category_id,
-                    importId: p.import_id
-                })) || [],
-                templates: templatesRes.data?.map(t => ({
-                    id: t.id,
-                    name: t.name,
-                    categoryId: t.category_id,
-                    backgroundImage: t.background_image,
-                    text: t.text_content
-                })) || [],
-                appLogo: settings?.app_logo || '',
-                portalTitle: settings?.portal_title || defaultInitialState.portalTitle,
-                portalSubtitle: settings?.portal_subtitle || defaultInitialState.portalSubtitle,
-                portalMetaTitle: settings?.portal_meta_title || 'Portal de Certificados',
-                currentTheme: (settings?.current_theme as ThemeId) || 'blue',
-                customTheme: settings?.custom_colors ? { ...defaultInitialState.customTheme, colors: settings.custom_colors } : defaultInitialState.customTheme
-            };
+                const [eventsRes, categoriesRes, templatesRes, participantsRes, historyRes] = await Promise.all([
+                    supabase.from('events').select('*'),
+                    supabase.from('categories').select('*'),
+                    supabase.from('templates').select('*'),
+                    supabase.from('participants').select('*'),
+                    supabase.from('import_history').select('*')
+                ]);
 
-            if (session?.user) {
-                initialStateUpdate.isAuthenticated = true;
-                initialStateUpdate.currentUser = { 
-                    name: session.user.user_metadata.full_name || 'Admin', 
-                    email: session.user.email!, 
-                    password: '' 
+                // Check for individual table errors (Commonly RLS blocks)
+                if (categoriesRes.error) console.error("Supabase: Erro em 'categories'. Certifique-se que existe política SELECT para 'anon'.", categoriesRes.error);
+                if (eventsRes.error) console.error("Supabase: Erro em 'events'.", eventsRes.error);
+                if (templatesRes.error) console.error("Supabase: Erro em 'templates'.", templatesRes.error);
+
+                const initialStateUpdate: Partial<AppState> = {
+                    events: eventsRes.data || [],
+                    categories: categoriesRes.data || [],
+                    importHistory: historyRes.data?.map(h => ({
+                        id: h.id,
+                        date: h.created_at || h.date,
+                        fileName: h.file_name,
+                        count: h.count,
+                        eventId: h.event_id,
+                        categoryName: h.category_name,
+                        status: h.status
+                    })) || [],
+                    participants: participantsRes.data?.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        email: p.email,
+                        eventId: p.event_id,
+                        categoryId: p.category_id,
+                        importId: p.import_id
+                    })) || [],
+                    templates: templatesRes.data?.map(t => ({
+                        id: t.id,
+                        name: t.name,
+                        categoryId: t.category_id,
+                        backgroundImage: t.background_image,
+                        text: t.text_content
+                    })) || [],
+                    appLogo: settings?.app_logo || '',
+                    portalTitle: settings?.portal_title || defaultInitialState.portalTitle,
+                    portalSubtitle: settings?.portal_subtitle || defaultInitialState.portalSubtitle,
+                    portalMetaTitle: settings?.portal_meta_title || 'Portal de Certificados',
+                    currentTheme: (settings?.current_theme as ThemeId) || 'blue',
+                    customTheme: settings?.custom_colors ? { ...defaultInitialState.customTheme, colors: settings.custom_colors } : defaultInitialState.customTheme
                 };
-            }
 
-            dispatch({ type: 'SET_INITIAL_STATE', payload: initialStateUpdate });
+                if (session?.user) {
+                    initialStateUpdate.isAuthenticated = true;
+                    initialStateUpdate.currentUser = { 
+                        name: session.user.user_metadata.full_name || 'Admin', 
+                        email: session.user.email!, 
+                        password: '' 
+                    };
+                }
+
+                dispatch({ type: 'SET_INITIAL_STATE', payload: initialStateUpdate });
+                console.log("Portal: Dados carregados com sucesso.", { 
+                    categorias: initialStateUpdate.categories?.length,
+                    eventos: initialStateUpdate.events?.length 
+                });
+            } catch (err) {
+                console.error("Portal: Falha crítica no carregamento inicial.", err);
+                dispatch({ type: 'SET_LOADING', payload: false });
+            }
         };
 
         loadInitialData();
     }, []);
 
-    // Dedicated Auth Listener
     useEffect(() => {
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             if (event === 'SIGNED_OUT') {

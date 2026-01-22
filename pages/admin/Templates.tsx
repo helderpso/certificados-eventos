@@ -52,6 +52,8 @@ const Templates: React.FC = () => {
                 id: currentCategory?.id || crypto.randomUUID(),
                 name: categoryName
             };
+            
+            console.log("Supabase: A gravar categoria...", catData);
             const { error } = await supabase.from('categories').upsert(catData);
             if (error) throw error;
 
@@ -61,8 +63,10 @@ const Templates: React.FC = () => {
                 dispatch({ type: 'ADD_CATEGORY', payload: catData });
             }
             setIsCategoryModalOpen(false);
+            console.log("Supabase: Categoria gravada com sucesso.");
         } catch (err: any) {
-            alert("Erro ao guardar categoria: " + err.message);
+            console.error("Supabase: Erro ao gravar categoria.", err);
+            alert("Erro ao guardar categoria: " + err.message + ". Verifique as políticas de RLS no Supabase.");
         } finally {
             setIsActionLoading(false);
         }
@@ -149,6 +153,9 @@ const Templates: React.FC = () => {
                             </div>
                         </div>
                     ))}
+                    {state.categories.length === 0 && (
+                        <div className="p-8 text-center text-gray-400 italic">Nenhuma categoria encontrada na base de dados.</div>
+                    )}
                 </div>
             </section>
 
@@ -188,6 +195,9 @@ const Templates: React.FC = () => {
                             </div>
                         </div>
                     ))}
+                    {state.templates.length === 0 && (
+                        <div className="p-8 text-center text-gray-400 italic">Nenhum modelo configurado.</div>
+                    )}
                 </div>
             </section>
 
