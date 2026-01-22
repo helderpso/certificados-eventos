@@ -1,6 +1,7 @@
 
 import React, { createContext, useContext, useReducer, ReactNode, Dispatch, useEffect } from 'react';
 import type { Event, Category, Template, Participant, User, ThemeId, ThemeConfig, ImportRecord } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface AppState {
     isAuthenticated: boolean;
@@ -12,14 +13,16 @@ interface AppState {
     templates: Template[];
     participants: Participant[];
     importHistory: ImportRecord[];
-    appLogo?: string; // Base64 string for the logo
+    appLogo?: string;
     portalTitle: string;
     portalSubtitle: string;
+    isSyncing?: boolean;
 }
 
 type Action =
-    | { type: 'LOGIN' }
+    | { type: 'LOGIN'; payload?: User }
     | { type: 'LOGOUT' }
+    | { type: 'SET_INITIAL_STATE'; payload: Partial<AppState> }
     | { type: 'UPDATE_PROFILE'; payload: User }
     | { type: 'SET_THEME'; payload: ThemeId }
     | { type: 'UPDATE_CUSTOM_THEME'; payload: Partial<ThemeConfig['colors']> }
@@ -47,132 +50,52 @@ export const THEMES: Record<string, ThemeConfig> = {
     blue: {
         id: 'blue',
         name: 'Azul Corporativo',
-        colors: {
-            50: '#eff6ff',
-            100: '#dbeafe',
-            500: '#3b82f6',
-            600: '#2563eb',
-            700: '#1d4ed8',
-        }
+        colors: { 50: '#eff6ff', 100: '#dbeafe', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8' }
     },
     green: {
         id: 'green',
         name: 'Verde Natureza',
-        colors: {
-            50: '#ecfdf5',
-            100: '#d1fae5',
-            500: '#10b981',
-            600: '#059669',
-            700: '#047857',
-        }
+        colors: { 50: '#ecfdf5', 100: '#d1fae5', 500: '#10b981', 600: '#059669', 700: '#047857' }
     },
     purple: {
         id: 'purple',
         name: 'Roxo Moderno',
-        colors: {
-            50: '#f5f3ff',
-            100: '#ede9fe',
-            500: '#8b5cf6',
-            600: '#7c3aed',
-            700: '#6d28d9',
-        }
+        colors: { 50: '#f5f3ff', 100: '#ede9fe', 500: '#8b5cf6', 600: '#7c3aed', 700: '#6d28d9' }
     },
     custom: {
         id: 'custom',
         name: 'Personalizado',
-        colors: {
-            50: '#ffffff',
-            100: '#f3f4f6',
-            500: '#6b7280',
-            600: '#4b5563',
-            700: '#374151',
-        }
+        colors: { 50: '#ffffff', 100: '#f3f4f6', 500: '#6b7280', 600: '#4b5563', 700: '#374151' }
     }
 };
 
 const defaultInitialState: AppState = {
     isAuthenticated: false,
-    currentUser: {
-        name: 'Administrador',
-        email: 'admin@example.com',
-        password: 'password'
-    },
+    currentUser: { name: 'Administrador', email: 'admin@example.com', password: 'password' },
     currentTheme: 'blue',
-    customTheme: {
-        id: 'custom',
-        name: 'Personalizado',
-        colors: {
-            50: '#fff1f2',
-            100: '#ffe4e6',
-            500: '#f43f5e',
-            600: '#e11d48',
-            700: '#be123c',
-        }
-    },
-    events: [
-        { id: 'evt1', name: 'React Conference 2024', date: '2024-10-26' },
-        { id: 'evt2', name: 'Web Summit 2024', date: '2024-11-15' },
-    ],
+    customTheme: { id: 'custom', name: 'Personalizado', colors: { 50: '#fff1f2', 100: '#ffe4e6', 500: '#f43f5e', 600: '#e11d48', 700: '#be123c' } },
+    events: [],
     categories: [
         { id: 'cat1', name: 'Congressista' },
         { id: 'cat2', name: 'Staff' },
-        { id: 'cat3', name: 'Orador' },
+        { id: 'cat3', name: 'Orador' }
     ],
-    templates: [
-        {
-            id: 'tpl1',
-            name: 'Certificado Congressista',
-            categoryId: 'cat1',
-            backgroundImage: sampleTemplateBg,
-            text: '<div style="text-align: center;"><font size="5">Certificamos que</font></div><div style="text-align: center;"><font size="7"><b>{{PARTICIPANT_NAME}}</b></font></div><div style="text-align: center;"><font size="4">participou com distinção como Congressista no evento {{EVENT_NAME}}.</font></div>'
-        },
-        {
-            id: 'tpl2',
-            name: 'Certificado Staff',
-            categoryId: 'cat2',
-            backgroundImage: sampleTemplateBg,
-            text: '<div style="text-align: center;"><font size="5">Certificamos e agradecemos a inestimável colaboração de</font></div><div style="text-align: center;"><font size="7"><b>{{PARTICIPANT_NAME}}</b></font></div><div style="text-align: center;"><font size="4">como membro do Staff no evento {{EVENT_NAME}}.</font></div>'
-        },
-        {
-            id: 'tpl3',
-            name: 'Certificado Orador',
-            categoryId: 'cat3',
-            backgroundImage: sampleTemplateBg,
-            text: '<div style="text-align: center;"><font size="5">Este certificado é concedido a</font></div><div style="text-align: center;"><font size="7"><b>{{PARTICIPANT_NAME}}</b></font></div><div style="text-align: center;"><font size="4">pela sua excelente apresentação como Orador em {{DATE}}.</font></div>'
-        }
-    ],
-    participants: [
-        { id: 'par1', name: 'João Silva', email: 'joao.silva@email.com', eventId: 'evt1', categoryId: 'cat1', importId: 'imp1' },
-        { id: 'par2', name: 'Maria Pereira', email: 'maria.p@email.com', eventId: 'evt1', categoryId: 'cat3', importId: 'imp1' },
-        { id: 'par3', name: 'João Silva', email: 'joao.silva@email.com', eventId: 'evt2', categoryId: 'cat2' },
-    ],
-    importHistory: [
-        { id: 'imp1', date: '2024-10-20T10:30:00Z', fileName: 'inscritos_v1.csv', count: 2, eventId: 'evt1', categoryName: 'Congressista', status: 'success' }
-    ],
+    templates: [],
+    participants: [],
+    importHistory: [],
     appLogo: '',
     portalTitle: 'Portal de Certificados',
     portalSubtitle: 'Insira o seu e-mail para encontrar e descarregar os seus certificados de participação.'
 };
 
-const loadInitialState = (): AppState => {
-    try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            // Ensure we merge with defaults to avoid errors on schema updates
-            return { ...defaultInitialState, ...parsed };
-        }
-    } catch (e) {
-        console.error("Failed to load state from localStorage", e);
-    }
-    return defaultInitialState;
-};
-
 const appReducer = (state: AppState, action: Action): AppState => {
     switch (action.type) {
+        case 'SET_INITIAL_STATE':
+            return { ...state, ...action.payload };
         case 'LOGIN':
-            return { ...state, isAuthenticated: true };
+            return { ...state, isAuthenticated: true, currentUser: action.payload || state.currentUser };
         case 'LOGOUT':
+            supabase.auth.signOut();
             return { ...state, isAuthenticated: false };
         case 'UPDATE_PROFILE':
             return { ...state, currentUser: action.payload };
@@ -181,21 +104,12 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case 'UPDATE_CUSTOM_THEME':
             return {
                 ...state,
-                customTheme: {
-                    ...state.customTheme,
-                    colors: {
-                        ...state.customTheme.colors,
-                        ...action.payload
-                    }
-                }
+                customTheme: { ...state.customTheme, colors: { ...state.customTheme.colors, ...action.payload } }
             };
         case 'ADD_EVENT':
             return { ...state, events: [...state.events, action.payload] };
         case 'UPDATE_EVENT':
-            return {
-                ...state,
-                events: state.events.map(e => e.id === action.payload.id ? action.payload : e),
-            };
+            return { ...state, events: state.events.map(e => e.id === action.payload.id ? action.payload : e) };
         case 'DELETE_EVENT':
             return {
                 ...state,
@@ -205,53 +119,29 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case 'ADD_CATEGORY':
             return { ...state, categories: [...state.categories, action.payload] };
         case 'UPDATE_CATEGORY':
-            return {
-                ...state,
-                categories: state.categories.map(c => c.id === action.payload.id ? action.payload : c),
-            };
+            return { ...state, categories: state.categories.map(c => c.id === action.payload.id ? action.payload : c) };
         case 'DELETE_CATEGORY':
-            return {
-                ...state,
-                categories: state.categories.filter(c => c.id !== action.payload),
-            };
+            return { ...state, categories: state.categories.filter(c => c.id !== action.payload) };
         case 'ADD_TEMPLATE':
             return { ...state, templates: [...state.templates, action.payload] };
         case 'UPDATE_TEMPLATE':
-             return {
-                ...state,
-                templates: state.templates.map(t => t.id === action.payload.id ? action.payload : t),
-            };
+             return { ...state, templates: state.templates.map(t => t.id === action.payload.id ? action.payload : t) };
         case 'DELETE_TEMPLATE':
-            return {
-                ...state,
-                templates: state.templates.filter(t => t.id !== action.payload),
-            };
+            return { ...state, templates: state.templates.filter(t => t.id !== action.payload) };
         case 'ADD_PARTICIPANTS':
-            return {
-                ...state,
-                participants: [...state.participants, ...action.payload],
-            };
+            return { ...state, participants: [...state.participants, ...action.payload] };
         case 'DELETE_PARTICIPANT':
-            return {
-                ...state,
-                participants: [...state.participants].filter(p => p.id !== action.payload),
-            };
+            return { ...state, participants: state.participants.filter(p => p.id !== action.payload) };
         case 'ADD_IMPORT_HISTORY':
-            return {
-                ...state,
-                importHistory: [action.payload, ...state.importHistory]
-            };
+            return { ...state, importHistory: [action.payload, ...state.importHistory] };
         case 'DELETE_IMPORT':
             return {
                 ...state,
-                importHistory: [...state.importHistory].filter(h => h.id !== action.payload),
-                participants: [...state.participants].filter(p => p.importId !== action.payload)
+                importHistory: state.importHistory.filter(h => h.id !== action.payload),
+                participants: state.participants.filter(p => p.importId !== action.payload)
             };
         case 'UPDATE_LOGO':
-            return {
-                ...state,
-                appLogo: action.payload
-            };
+            return { ...state, appLogo: action.payload };
         case 'UPDATE_PORTAL_TEXT':
             return {
                 ...state,
@@ -266,16 +156,49 @@ const appReducer = (state: AppState, action: Action): AppState => {
 const AppContext = createContext<{ state: AppState; dispatch: Dispatch<Action> } | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [state, dispatch] = useReducer(appReducer, loadInitialState());
+    const [state, dispatch] = useReducer(appReducer, defaultInitialState);
 
-    // Sync state to localStorage whenever it changes
+    // 1. Initial Load from LocalStorage + Supabase Session Check
     useEffect(() => {
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-        } catch (e) {
-            console.error("Failed to save state to localStorage", e);
+        const init = async () => {
+            // Load LocalStorage as cache
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                dispatch({ type: 'SET_INITIAL_STATE', payload: JSON.parse(saved) });
+            }
+
+            // Check Supabase Session
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                dispatch({ 
+                    type: 'LOGIN', 
+                    payload: { name: session.user.user_metadata.full_name || 'Admin', email: session.user.email!, password: '' } 
+                });
+                
+                // Here you would fetch actual data from Supabase tables
+                // fetchAppData(session.user.id);
+            }
+        };
+        init();
+    }, []);
+
+    // 2. Sync to LocalStorage (as fallback/cache)
+    useEffect(() => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        
+        // 3. Sync to Supabase (only if authenticated)
+        if (state.isAuthenticated) {
+            syncToSupabase(state);
         }
     }, [state]);
+
+    const syncToSupabase = async (currentState: AppState) => {
+        // Exemplo de como persistir as definições globais numa tabela 'settings'
+        // No Supabase real, cada ação do reducer dispararia um comando SQL específico
+        // mas para esta demonstração, mostramos o conceito de sincronização
+        console.log("Sincronizando com Supabase Cloud...");
+        // await supabase.from('settings').upsert({ id: 'global', theme: currentState.currentTheme, ... });
+    };
 
     return <AppContext.Provider value={{ state, dispatch }}>{children}</AppContext.Provider>;
 };
