@@ -13,16 +13,18 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, variab
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [fontSize, setFontSize] = useState('3'); // Default 3 (normal)
 
-    // Sync external value to internal contentEditable (only if different to prevent cursor jumps)
+    // Sincroniza o valor inicial e atualizações externas (ex: carregar modelo)
+    // Mas ignora se o conteúdo atual já for igual ao valor para evitar saltos de cursor
     useEffect(() => {
         if (contentRef.current && contentRef.current.innerHTML !== value) {
             contentRef.current.innerHTML = value;
         }
-    }, []); // Only run on mount to set initial value, treating it as uncontrolled afterwards for performance
+    }, [value]); 
 
     const handleInput = () => {
         if (contentRef.current) {
-            onChange(contentRef.current.innerHTML);
+            const html = contentRef.current.innerHTML;
+            onChange(html);
         }
     };
 
@@ -30,20 +32,34 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, variab
         document.execCommand(command, false, value);
         if (contentRef.current) {
             contentRef.current.focus();
-            onChange(contentRef.current.innerHTML); // Trigger update
+            onChange(contentRef.current.innerHTML);
         }
     };
 
     const insertVariable = (variable: string) => {
-        // Focus properly before inserting
         if (contentRef.current) {
             contentRef.current.focus();
-        }
-        document.execCommand('insertText', false, variable);
-        setIsMenuOpen(false);
-        if (contentRef.current) {
+            // Tenta inserir no local do cursor
+            const selection = window.getSelection();
+            if (selection && selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                range.deleteContents();
+                const textNode = document.createTextNode(variable);
+                range.insertNode(textNode);
+                
+                // Move o cursor para depois da variável
+                range.setStartAfter(textNode);
+                range.setEndAfter(textNode);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            } else {
+                // Fallback se não houver seleção
+                document.execCommand('insertText', false, variable);
+            }
+            
             onChange(contentRef.current.innerHTML);
         }
+        setIsMenuOpen(false);
     };
 
     const handleFontSize = (size: string) => {
@@ -142,10 +158,10 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, variab
             <div 
                 ref={contentRef}
                 contentEditable
+                suppressContentEditableWarning={true}
                 onInput={handleInput}
                 className="min-h-[200px] p-4 focus:outline-none prose prose-sm max-w-none text-gray-800"
                 style={{ fontFamily: 'Arial, sans-serif' }}
-                dangerouslySetInnerHTML={{ __html: value }}
             />
              <div className="bg-gray-50 px-3 py-1 text-xs text-gray-400 border-t flex justify-between">
                 <span>Editor Visual</span>
