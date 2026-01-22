@@ -275,42 +275,43 @@ const Events: React.FC = () => {
             template: template
         };
 
-        // Set certificate to render in the hidden div
+        // Render hidden certificate
         setTempCertForDownload(certificate);
 
-        // Allow React a tick to render
+        // Wait longer (500ms) to ensure base64 image and fonts are mapped by browser
         setTimeout(async () => {
             try {
                 const element = downloadPreviewRef.current;
                 if (!element) throw new Error("Falha ao preparar o certificado.");
 
-                // High quality PDF dimensions (300 DPI)
-                const a4w = 2480; 
-                
+                // Using scale 2 for high quality print without overkill
                 const canvas = await html2canvas(element, {
-                    scale: a4w / element.offsetWidth,
+                    scale: 2,
                     useCORS: true,
-                    width: element.offsetWidth,
-                    height: element.offsetHeight,
+                    logging: false,
+                    allowTaint: true,
+                    backgroundColor: null,
                 });
 
-                const imgData = canvas.toDataURL('image/png');
+                // JPEG at 0.75 quality significantly reduces size compared to PNG
+                const imgData = canvas.toDataURL('image/jpeg', 0.75);
+                
                 const pdf = new jsPDF({
                     orientation: 'landscape',
                     unit: 'px',
                     format: [canvas.width, canvas.height]
                 });
 
-                pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+                pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height, undefined, 'FAST');
                 pdf.save(`Certificado_${selectedEventForParticipants.name.replace(/ /g, '_')}_${p.name.replace(/ /g, '_')}.pdf`);
             } catch (err) {
                 console.error("Erro ao gerar PDF:", err);
-                alert("Ocorreu um erro ao gerar o PDF.");
+                alert("Ocorreu um erro ao gerar o PDF. Verifique se o modelo tem uma imagem de fundo válida.");
             } finally {
                 setIsDownloadingParticipant(null);
                 setTempCertForDownload(null);
             }
-        }, 300);
+        }, 600);
     };
 
     return (
@@ -611,7 +612,7 @@ const Events: React.FC = () => {
             )}
 
             {/* Hidden preview for individual PDF generation */}
-            <div className="absolute -left-[9999px] invisible pointer-events-none">
+            <div className="absolute -left-[9999px] invisible pointer-events-none" style={{ top: '-9999px' }}>
                 {tempCertForDownload && (
                     <div ref={downloadPreviewRef}>
                         <CertificatePreview certificate={tempCertForDownload} />

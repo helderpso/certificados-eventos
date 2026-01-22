@@ -60,28 +60,36 @@ const CertificateFinder: React.FC = () => {
 
         setIsDownloading(key);
 
-        // A4 dimensions in pixels at 300 DPI for high quality
-        const a4w = 2480;
-        const a4h = 3508;
-        
-        const canvas = await html2canvas(certificateElement, {
-            scale: a4w / certificateElement.offsetWidth,
-            useCORS: true,
-            width: certificateElement.offsetWidth,
-            height: certificateElement.offsetHeight,
-        });
+        // Wait a bit to ensure it's rendered
+        setTimeout(async () => {
+            try {
+                // Scale 2 is enough for clear text and background without massive file size
+                const canvas = await html2canvas(certificateElement, {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    allowTaint: true,
+                    backgroundColor: null
+                });
 
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF({
-            orientation: 'landscape',
-            unit: 'px',
-            format: [canvas.width, canvas.height]
-        });
+                // JPEG 0.75 is the sweet spot for size/quality
+                const imgData = canvas.toDataURL('image/jpeg', 0.75);
+                
+                const pdf = new jsPDF({
+                    orientation: 'landscape',
+                    unit: 'px',
+                    format: [canvas.width, canvas.height]
+                });
 
-        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
-        pdf.save(`Certificado_${cert.event.name.replace(/ /g, '_')}_${cert.participant.name.replace(/ /g, '_')}.pdf`);
-        
-        setIsDownloading(null);
+                pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height, undefined, 'FAST');
+                pdf.save(`Certificado_${cert.event.name.replace(/ /g, '_')}_${cert.participant.name.replace(/ /g, '_')}.pdf`);
+            } catch (err) {
+                console.error("Erro ao gerar PDF:", err);
+                alert("Erro ao processar o certificado. Tente novamente.");
+            } finally {
+                setIsDownloading(null);
+            }
+        }, 300);
     };
 
     return (
@@ -186,8 +194,8 @@ const CertificateFinder: React.FC = () => {
                 )}
             </div>
 
-            {/* Hidden previews for PDF generation */}
-            <div className="absolute -left-[9999px] top-0">
+            {/* Hidden previews for PDF generation - Moved far off screen but kept dimensions */}
+            <div className="absolute overflow-hidden" style={{ top: '-10000px', left: '-10000px', width: '1200px', height: '1000px' }}>
                 {foundCertificates.map(cert => {
                      const key = `${cert.participant.id}-${cert.event.id}`;
                     return <div key={key} ref={el => { previewRefs.current[key] = el; }}><CertificatePreview certificate={cert} /></div>
