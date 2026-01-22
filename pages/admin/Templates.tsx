@@ -1,8 +1,9 @@
 
 import React, { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
+import { supabase } from '../../lib/supabase';
 import type { Category, Template } from '../../types';
-import { Plus, Edit, Trash2, X, Eye, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Eye, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import CertificatePreview from '../../components/CertificatePreview';
 import RichTextEditor from '../../components/RichTextEditor';
 
@@ -11,6 +12,7 @@ const Templates: React.FC = () => {
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
     const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+    const [isActionLoading, setIsActionLoading] = useState(false);
 
     const [currentCategory, setCurrentCategory] = useState<Category | null>(null);
     const [categoryName, setCategoryName] = useState('');
@@ -21,13 +23,11 @@ const Templates: React.FC = () => {
     const [templateName, setTemplateName] = useState('');
     const [templateCategory, setTemplateCategory] = useState('');
     const [templateImage, setTemplateImage] = useState<string>('');
-    // Default HTML content for new templates
-    const [templateText, setTemplateText] = useState('<div style="text-align: center;"><font size="5">Certificamos que</font></div><div style="text-align: center;"><font size="7"><b>{{PARTICIPANT_NAME}}</b></font></div><div style="text-align: center;"><font size="4">participou com distinção no evento {{EVENT_NAME}} realizado em {{DATE}}.</font></div>');
+    const [templateText, setTemplateText] = useState('<div style="text-align: center;"><font size="5">Certificamos que</font></div><div style="text-align: center;"><font size="7"><b>{{PARTICIPANT_NAME}}</b></font></div><div style="text-align: center;"><font size="4">participou no evento.</font></div>');
 
     const [successMessage, setSuccessMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
 
-    // Delete Modal State
     const [deleteConfig, setDeleteConfig] = useState<{
         isOpen: boolean;
         type: 'category' | 'template' | null;
@@ -44,319 +44,239 @@ const Templates: React.FC = () => {
 
     const AVAILABLE_VARIABLES = ['{{PARTICIPANT_NAME}}', '{{EVENT_NAME}}', '{{DATE}}'];
 
-    // Category Handlers
-    const openCategoryModal = (category: Category | null) => {
-        setCurrentCategory(category);
-        setCategoryName(category?.name || '');
-        setIsCategoryModalOpen(true);
-    };
-
-    const closeCategoryModal = () => {
-        setIsCategoryModalOpen(false);
-        setCurrentCategory(null);
-        setCategoryName('');
-    };
-
-    const handleCategorySubmit = (e: React.FormEvent) => {
+    const handleCategorySubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (currentCategory) {
-            dispatch({ type: 'UPDATE_CATEGORY', payload: { ...currentCategory, name: categoryName } });
-        } else {
-            dispatch({ type: 'ADD_CATEGORY', payload: { id: `cat${Date.now()}`, name: categoryName } });
-        }
-        closeCategoryModal();
-    };
-
-    // Template Handlers
-    const openTemplateModal = (template: Template | null) => {
-        setCurrentTemplate(template);
-        setTemplateName(template?.name || '');
-        setTemplateCategory(template?.categoryId || '');
-        setTemplateImage(template?.backgroundImage || '');
-        if (template?.text) {
-             setTemplateText(template.text);
-        } else {
-             // Default if empty
-             setTemplateText('<div style="text-align: center;"><font size="5">Certificamos que</font></div><div style="text-align: center;"><font size="7"><b>{{PARTICIPANT_NAME}}</b></font></div><div style="text-align: center;"><font size="4">participou no evento.</font></div>');
-        }
-        setIsTemplateModalOpen(true);
-    }
-    
-    const closeTemplateModal = () => {
-        setIsTemplateModalOpen(false);
-        setCurrentTemplate(null);
-        setErrorMessage('');
-    }
-    
-    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setTemplateImage(reader.result as string);
+        setIsActionLoading(true);
+        try {
+            const catData = {
+                id: currentCategory?.id || `cat${Date.now()}`,
+                name: categoryName
             };
-            reader.readAsDataURL(file);
+            const { error } = await supabase.from('categories').upsert(catData);
+            if (error) throw error;
+
+            if (currentCategory) {
+                dispatch({ type: 'UPDATE_CATEGORY', payload: catData });
+            } else {
+                dispatch({ type: 'ADD_CATEGORY', payload: catData });
+            }
+            setIsCategoryModalOpen(false);
+        } catch (err: any) {
+            alert("Erro ao guardar categoria: " + err.message);
+        } finally {
+            setIsActionLoading(false);
         }
     };
-    
-    const handleTemplateSubmit = (e: React.FormEvent) => {
+
+    const handleTemplateSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setErrorMessage('');
-        
         if(!templateCategory || !templateImage) {
-            setErrorMessage("Por favor, selecione uma categoria e uma imagem de fundo.");
+            setErrorMessage("Selecione categoria e imagem.");
             return;
         }
 
-        const payload: Template = {
-            id: currentTemplate?.id || `tpl${Date.now()}`,
-            name: templateName,
-            categoryId: templateCategory,
-            backgroundImage: templateImage,
-            text: templateText,
-        };
+        setIsActionLoading(true);
+        try {
+            const tplData = {
+                id: currentTemplate?.id || `tpl${Date.now()}`,
+                name: templateName,
+                category_id: templateCategory, // Database uses underscore
+                background_image: templateImage,
+                text_content: templateText
+            };
 
-        if (currentTemplate) {
-            dispatch({ type: 'UPDATE_TEMPLATE', payload });
-        } else {
-            dispatch({ type: 'ADD_TEMPLATE', payload });
+            const { error } = await supabase.from('templates').upsert(tplData);
+            if (error) throw error;
+
+            const localPayload: Template = {
+                id: tplData.id,
+                name: tplData.name,
+                categoryId: tplData.category_id,
+                backgroundImage: tplData.background_image,
+                text: tplData.text_content
+            };
+
+            if (currentTemplate) {
+                dispatch({ type: 'UPDATE_TEMPLATE', payload: localPayload });
+            } else {
+                dispatch({ type: 'ADD_TEMPLATE', payload: localPayload });
+            }
+            setIsTemplateModalOpen(false);
+            setSuccessMessage("Modelo guardado!");
+            setTimeout(() => setSuccessMessage(''), 3000);
+        } catch (err: any) {
+            setErrorMessage(err.message);
+        } finally {
+            setIsActionLoading(false);
         }
-        closeTemplateModal();
-        setSuccessMessage('Modelo guardado com sucesso!');
-        setTimeout(() => setSuccessMessage(''), 3000);
-    }
-
-    const openPreview = (template: Template) => {
-        setTemplateToPreview(template);
-        setIsPreviewModalOpen(true);
-    }
-
-    // Delete Handlers
-    const requestDeleteCategory = (id: string) => {
-         setDeleteConfig({
-            isOpen: true,
-            type: 'category',
-            id,
-            title: 'Apagar Categoria',
-            message: 'Tem a certeza que quer apagar esta categoria? Esta ação pode afetar modelos associados.'
-        });
-    }
-
-    const requestDeleteTemplate = (id: string) => {
-        setDeleteConfig({
-            isOpen: true,
-            type: 'template',
-            id,
-            title: 'Apagar Modelo',
-            message: 'Tem a certeza que quer apagar este modelo de certificado?'
-        });
-    }
-
-    const closeDeleteModal = () => {
-        setDeleteConfig({ ...deleteConfig, isOpen: false, id: null, type: null });
     };
 
-    const confirmDeleteAction = () => {
+    const confirmDeleteAction = async () => {
         const { type, id } = deleteConfig;
         if (!id || !type) return;
+        setIsActionLoading(true);
+        try {
+            const table = type === 'category' ? 'categories' : 'templates';
+            const { error } = await supabase.from(table).delete().eq('id', id);
+            if (error) throw error;
 
-        if (type === 'category') {
-             dispatch({ type: 'DELETE_CATEGORY', payload: id });
-        } else if (type === 'template') {
-             dispatch({ type: 'DELETE_TEMPLATE', payload: id });
+            if (type === 'category') dispatch({ type: 'DELETE_CATEGORY', payload: id });
+            else dispatch({ type: 'DELETE_TEMPLATE', payload: id });
+        } catch (err: any) {
+            alert("Erro ao apagar: " + err.message);
+        } finally {
+            setIsActionLoading(false);
+            setDeleteConfig({ ...deleteConfig, isOpen: false });
         }
-
-        closeDeleteModal();
     };
 
     return (
-        <div>
-            {/* Categories Section */}
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-800">Categorias</h2>
-                <button onClick={() => openCategoryModal(null)} className="flex items-center bg-brand-600 text-white px-4 py-2 rounded-lg shadow hover:bg-brand-700 transition">
-                    <Plus className="h-5 w-5 mr-2" /> Nova Categoria
-                </button>
-            </div>
-            <div className="bg-white rounded-lg shadow overflow-hidden mb-8">
-                <ul className="divide-y divide-gray-200">
+        <div className="space-y-10">
+            {/* Categories */}
+            <section>
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-bold">Categorias</h2>
+                    <button onClick={() => { setCurrentCategory(null); setCategoryName(''); setIsCategoryModalOpen(true); }} className="bg-brand-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-md">
+                        <Plus size={20}/> Nova Categoria
+                    </button>
+                </div>
+                <div className="bg-white rounded-xl shadow overflow-hidden divide-y">
                     {state.categories.map(cat => (
-                        <li key={cat.id} className="p-4 flex justify-between items-center">
-                            <span>{cat.name}</span>
-                            <div className="space-x-2">
-                                <button onClick={() => openCategoryModal(cat)} className="p-2 text-gray-500 hover:text-brand-600"><Edit size={18} /></button>
-                                <button onClick={() => requestDeleteCategory(cat.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={18} /></button>
+                        <div key={cat.id} className="p-4 flex justify-between items-center">
+                            <span className="font-medium">{cat.name}</span>
+                            <div className="flex gap-1">
+                                <button onClick={() => { setCurrentCategory(cat); setCategoryName(cat.name); setIsCategoryModalOpen(true); }} className="p-2 text-gray-500 hover:text-brand-600"><Edit size={18}/></button>
+                                <button onClick={() => setDeleteConfig({ isOpen: true, type: 'category', id: cat.id, title: 'Apagar Categoria', message: 'Isto pode afetar modelos associados.' })} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={18}/></button>
                             </div>
-                        </li>
+                        </div>
                     ))}
-                </ul>
-            </div>
-
-            {/* Templates Section */}
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-800">Modelos de Certificado</h2>
-                <button onClick={() => openTemplateModal(null)} className="flex items-center bg-brand-600 text-white px-4 py-2 rounded-lg shadow hover:bg-brand-700 transition">
-                    <Plus className="h-5 w-5 mr-2" /> Novo Modelo
-                </button>
-            </div>
-
-            {successMessage && (
-                <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg flex items-center shadow-sm animate-fadeIn">
-                    <CheckCircle className="h-5 w-5 mr-2" />
-                    {successMessage}
                 </div>
-            )}
+            </section>
 
-             <div className="bg-white rounded-lg shadow overflow-hidden">
-                <ul className="divide-y divide-gray-200">
+            {/* Templates */}
+            <section>
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-bold">Modelos</h2>
+                    <button onClick={() => { 
+                        setCurrentTemplate(null); 
+                        setTemplateName(''); 
+                        setTemplateCategory(''); 
+                        setTemplateImage('');
+                        setTemplateText('<div style="text-align: center;"><font size="5">Certificamos que</font></div><div style="text-align: center;"><font size="7"><b>{{PARTICIPANT_NAME}}</b></font></div><div style="text-align: center;"><font size="4">participou no evento.</font></div>');
+                        setIsTemplateModalOpen(true); 
+                    }} className="bg-brand-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-md">
+                        <Plus size={20}/> Novo Modelo
+                    </button>
+                </div>
+                {successMessage && <div className="mb-4 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg flex items-center gap-2"><CheckCircle size={20}/>{successMessage}</div>}
+                <div className="bg-white rounded-xl shadow overflow-hidden divide-y">
                     {state.templates.map(tpl => (
-                        <li key={tpl.id} className="p-4 flex justify-between items-center">
-                           <div>
-                                <p className="font-semibold">{tpl.name}</p>
-                                <p className="text-sm text-gray-500">{state.categories.find(c=>c.id === tpl.categoryId)?.name}</p>
-                           </div>
-                            <div className="space-x-2">
-                                <button onClick={() => openPreview(tpl)} className="p-2 text-gray-500 hover:text-indigo-600"><Eye size={18} /></button>
-                                <button onClick={() => openTemplateModal(tpl)} className="p-2 text-gray-500 hover:text-brand-600"><Edit size={18} /></button>
-                                <button onClick={() => requestDeleteTemplate(tpl.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={18} /></button>
+                        <div key={tpl.id} className="p-4 flex justify-between items-center">
+                            <div>
+                                <p className="font-bold">{tpl.name}</p>
+                                <p className="text-xs text-gray-500">{state.categories.find(c => c.id === tpl.categoryId)?.name}</p>
                             </div>
-                        </li>
+                            <div className="flex gap-2">
+                                <button onClick={() => { setTemplateToPreview(tpl); setIsPreviewModalOpen(true); }} className="p-2 text-gray-500 hover:text-indigo-600"><Eye size={18}/></button>
+                                <button onClick={() => {
+                                    setCurrentTemplate(tpl);
+                                    setTemplateName(tpl.name);
+                                    setTemplateCategory(tpl.categoryId);
+                                    setTemplateImage(tpl.backgroundImage);
+                                    setTemplateText(tpl.text);
+                                    setIsTemplateModalOpen(true);
+                                }} className="p-2 text-gray-500 hover:text-brand-600"><Edit size={18}/></button>
+                                <button onClick={() => setDeleteConfig({ isOpen: true, type: 'template', id: tpl.id, title: 'Apagar Modelo', message: 'Remover este modelo permanentemente?' })} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={18}/></button>
+                            </div>
+                        </div>
                     ))}
-                </ul>
-            </div>
-            
-             {/* Delete Confirmation Modal */}
-             {deleteConfig.isOpen && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 backdrop-blur-sm animate-fadeIn" onClick={(e) => e.stopPropagation()}>
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
-                        <div className="p-6">
-                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mx-auto mb-4">
-                                <AlertTriangle className="h-6 w-6 text-red-600" />
-                            </div>
-                            <div className="text-center">
-                                <h3 className="text-lg font-bold text-gray-900">{deleteConfig.title}</h3>
-                                <p className="mt-2 text-sm text-gray-500 whitespace-pre-line">
-                                    {deleteConfig.message}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="bg-gray-50 px-6 py-4 flex flex-row-reverse gap-3">
-                            <button
-                                type="button"
-                                onClick={confirmDeleteAction}
-                                className="inline-flex w-full justify-center rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:w-auto"
-                            >
-                                Apagar
-                            </button>
-                            <button
-                                type="button"
-                                onClick={closeDeleteModal}
-                                className="inline-flex w-full justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:w-auto"
-                            >
-                                Cancelar
-                            </button>
-                        </div>
-                    </div>
                 </div>
-            )}
+            </section>
 
             {/* Category Modal */}
             {isCategoryModalOpen && (
-                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-                        <div className="flex justify-between items-center p-4 border-b">
-                           <h3 className="text-xl font-semibold">{currentCategory ? 'Editar Categoria' : 'Nova Categoria'}</h3>
-                           <button onClick={closeCategoryModal}><X className="h-6 w-6 text-gray-500" /></button>
-                        </div>
-                        <form onSubmit={handleCategorySubmit} className="p-6 space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Nome da Categoria</label>
-                                <input type="text" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm" />
-                            </div>
-                            <div className="flex justify-end pt-4">
-                                <button type="button" onClick={closeCategoryModal} className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg mr-2 hover:bg-gray-300">Cancelar</button>
-                                <button type="submit" className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700">Guardar</button>
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl p-6 w-full max-w-md">
+                        <h3 className="text-xl font-bold mb-4">{currentCategory ? 'Editar' : 'Nova'} Categoria</h3>
+                        <form onSubmit={handleCategorySubmit} className="space-y-4">
+                            <input type="text" value={categoryName} onChange={e => setCategoryName(e.target.value)} placeholder="Ex: Palestrante" required className="w-full border rounded-lg p-2.5" />
+                            <div className="flex justify-end gap-2">
+                                <button type="button" onClick={() => setIsCategoryModalOpen(false)} className="px-4 py-2 bg-gray-100 rounded-lg">Cancelar</button>
+                                <button type="submit" disabled={isActionLoading} className="px-4 py-2 bg-brand-600 text-white rounded-lg min-w-[100px] flex justify-center">
+                                    {isActionLoading ? <Loader2 className="animate-spin h-5 w-5"/> : 'Guardar'}
+                                </button>
                             </div>
                         </form>
                     </div>
-                 </div>
+                </div>
             )}
-            
+
             {/* Template Modal */}
             {isTemplateModalOpen && (
-                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl">
-                        <div className="flex justify-between items-center p-4 border-b">
-                           <h3 className="text-xl font-semibold">{currentTemplate ? 'Editar Modelo' : 'Novo Modelo'}</h3>
-                           <button onClick={closeTemplateModal}><X className="h-6 w-6 text-gray-500" /></button>
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+                        <div className="p-4 border-b flex justify-between items-center">
+                            <h3 className="text-xl font-bold">{currentTemplate ? 'Editar' : 'Novo'} Modelo</h3>
+                            <button onClick={() => setIsTemplateModalOpen(false)}><X/></button>
                         </div>
-                        <form onSubmit={handleTemplateSubmit} className="p-6 space-y-6 max-h-[85vh] overflow-y-auto">
-                            
-                            {errorMessage && (
-                                <div className="p-3 bg-red-100 border border-red-200 text-red-600 rounded-lg text-sm flex items-center">
-                                    <AlertTriangle className="h-4 w-4 mr-2" />
-                                    {errorMessage}
-                                </div>
-                            )}
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Nome do Modelo</label>
-                                    <input type="text" value={templateName} onChange={(e) => setTemplateName(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2 border" />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Categoria</label>
-                                    <select value={templateCategory} onChange={(e) => setTemplateCategory(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2 border">
-                                        <option value="">Selecione uma categoria</option>
-                                        {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                    </select>
-                                </div>
+                        <form onSubmit={handleTemplateSubmit} className="flex-1 overflow-auto p-6 space-y-6">
+                            {errorMessage && <div className="p-3 bg-red-50 text-red-600 border border-red-200 rounded-lg">{errorMessage}</div>}
+                            <div className="grid md:grid-cols-2 gap-4">
+                                <input type="text" value={templateName} onChange={e => setTemplateName(e.target.value)} placeholder="Nome do Modelo" required className="border p-2.5 rounded-lg" />
+                                <select value={templateCategory} onChange={e => setTemplateCategory(e.target.value)} required className="border p-2.5 rounded-lg">
+                                    <option value="">Categoria...</option>
+                                    {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
                             </div>
-                            
+                            <RichTextEditor value={templateText} onChange={setTemplateText} variables={AVAILABLE_VARIABLES} />
                             <div>
-                                <label className="block text-sm font-medium mb-2">Editor de Conteúdo do Certificado</label>
-                                <RichTextEditor 
-                                    value={templateText} 
-                                    onChange={setTemplateText} 
-                                    variables={AVAILABLE_VARIABLES}
-                                />
-                                <p className="text-xs text-gray-500 mt-1">Utilize as opções de formatação para estilizar o texto. Insira variáveis dinâmicas onde o nome ou evento devem aparecer.</p>
+                                <p className="text-sm font-medium mb-2">Imagem de Fundo (PNG/JPG)</p>
+                                <input type="file" accept="image/*" onChange={e => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => setTemplateImage(reader.result as string);
+                                        reader.readAsDataURL(file);
+                                    }
+                                }} className="text-sm" />
+                                {templateImage && <img src={templateImage} className="mt-2 h-32 border rounded"/>}
                             </div>
-
-                             <div>
-                                <label className="block text-sm font-medium mb-1">Imagem de Fundo</label>
-                                <input type="file" accept="image/*" onChange={handleImageUpload} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100"/>
-                                {templateImage && (
-                                    <div className="mt-4 border rounded-md p-2 bg-gray-50 text-center">
-                                        <p className="text-xs text-gray-500 mb-2">Pré-visualização do Fundo</p>
-                                        <img src={templateImage} alt="Preview" className="max-h-40 mx-auto shadow-sm" />
-                                    </div>
-                                )}
-                            </div>
-                            
-                            <div className="flex justify-end pt-4 border-t">
-                                <button type="button" onClick={closeTemplateModal} className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg mr-2 hover:bg-gray-300">Cancelar</button>
-                                <button type="submit" className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700">Guardar</button>
+                            <div className="flex justify-end gap-2 border-t pt-4">
+                                <button type="button" onClick={() => setIsTemplateModalOpen(false)} className="px-6 py-2 bg-gray-100 rounded-lg">Cancelar</button>
+                                <button type="submit" disabled={isActionLoading} className="px-6 py-2 bg-brand-600 text-white rounded-lg flex items-center gap-2">
+                                    {isActionLoading && <Loader2 className="animate-spin h-5 w-5"/>} Guardar
+                                </button>
                             </div>
                         </form>
                     </div>
-                 </div>
+                </div>
             )}
-             {isPreviewModalOpen && templateToPreview && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setIsPreviewModalOpen(false)}>
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl" onClick={e => e.stopPropagation()}>
-                         <div className="flex justify-between items-center p-4 border-b">
-                           <h3 className="text-xl font-semibold">Pré-visualização do Certificado</h3>
-                           <button onClick={() => setIsPreviewModalOpen(false)}><X className="h-6 w-6 text-gray-500" /></button>
-                        </div>
-                        <div className="p-6 overflow-auto max-h-[80vh] flex justify-center bg-gray-100">
-                             <div className="scale-75 origin-top">
-                                <CertificatePreview certificate={{
-                                    event: {id: 'preview', name: 'Web Summit 2024', date: new Date().toISOString()},
-                                    participant: {id: 'preview', name: 'Ana Souza', email: 'exemplo@email.com', eventId: 'preview', categoryId: templateToPreview.categoryId},
-                                    template: templateToPreview
-                                }} />
-                             </div>
+
+            {/* Preview Modal */}
+            {isPreviewModalOpen && templateToPreview && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4" onClick={() => setIsPreviewModalOpen(false)}>
+                    <div className="bg-white rounded-xl shadow-2xl p-4 scale-50 md:scale-75 lg:scale-90" onClick={e => e.stopPropagation()}>
+                        <CertificatePreview certificate={{
+                            event: { id: 'p', name: 'Evento Demo', date: new Date().toISOString() },
+                            participant: { id: 'p', name: 'Nome do Participante', email: 'a@a.pt', eventId: 'p', categoryId: templateToPreview.categoryId },
+                            template: templateToPreview
+                        }} />
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Confirmation */}
+            {deleteConfig.isOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4">
+                    <div className="bg-white rounded-xl p-6 w-full max-w-sm text-center">
+                        <AlertTriangle className="h-12 w-12 text-red-600 mx-auto mb-4" />
+                        <h3 className="font-bold">{deleteConfig.title}</h3>
+                        <p className="text-sm text-gray-500 my-2">{deleteConfig.message}</p>
+                        <div className="flex gap-2 mt-6">
+                            <button onClick={() => setDeleteConfig({ ...deleteConfig, isOpen: false })} className="flex-1 py-2 bg-gray-100 rounded-lg">Não</button>
+                            <button onClick={confirmDeleteAction} disabled={isActionLoading} className="flex-1 py-2 bg-red-600 text-white rounded-lg">
+                                {isActionLoading ? <Loader2 className="animate-spin mx-auto h-5 w-5"/> : 'Sim, Apagar'}
+                            </button>
                         </div>
                     </div>
                 </div>
