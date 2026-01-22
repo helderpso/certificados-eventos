@@ -147,8 +147,9 @@ const Events: React.FC = () => {
     const downloadCsvTemplate = () => {
         const headers = ['name', 'email'];
         const sampleData = [
+            ['Hélder Oliveira', 'helder.oliveira@exemplo.com'],
             ['João Silva', 'joao.silva@exemplo.com'],
-            ['Maria Oliveira', 'maria.oliveira@exemplo.com']
+            ['Maria Conceição', 'maria.conceicao@exemplo.com']
         ];
         
         const csvContent = Papa.unparse({
@@ -156,7 +157,8 @@ const Events: React.FC = () => {
             data: sampleData
         });
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        // Adicionamos o BOM (\ufeff) para que o Excel reconheça o ficheiro como UTF-8
+        const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
@@ -179,13 +181,12 @@ const Events: React.FC = () => {
         Papa.parse(csvFile, {
             header: true,
             skipEmptyLines: true,
+            encoding: "UTF-8", // Forçamos UTF-8 para garantir a leitura correta de acentos
             complete: async (results) => {
                 try {
                     const importId = crypto.randomUUID();
                     const now = new Date().toISOString();
 
-                    // Prepara os dados do histórico PRIMEIRO (Snake Case para colunas DB)
-                    // Substituímos 'date' por 'created_at' para alinhar com o padrão Supabase
                     const importRecordData = {
                         id: importId,
                         created_at: now, 
@@ -211,18 +212,15 @@ const Events: React.FC = () => {
 
                     importRecordData.count = dbParticipants.length;
 
-                    // 1. Inserir o histórico (Pai)
                     const { error: hError } = await supabase.from('import_history').insert(importRecordData);
                     if (hError) throw hError;
 
-                    // 2. Inserir os participantes (Filhos)
                     const { error: pError } = await supabase.from('participants').insert(dbParticipants);
                     if (pError) {
                         await supabase.from('import_history').delete().eq('id', importId);
                         throw pError;
                     }
 
-                    // Dispatch com camelCase para o Frontend
                     const localParticipants: Participant[] = dbParticipants.map(p => ({
                         id: p.id,
                         name: p.name,
