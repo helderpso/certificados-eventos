@@ -177,7 +177,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 categories: categoriesRes.data || [],
                 importHistory: historyRes.data?.map(h => ({
                     id: h.id,
-                    date: h.date,
+                    date: h.created_at || h.date, // Tenta created_at (padrão) ou fallback para date
                     fileName: h.file_name,
                     count: h.count,
                     eventId: h.event_id,
