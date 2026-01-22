@@ -177,7 +177,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                     appLogo: settings?.app_logo || '',
                     portalTitle: settings?.portal_title || 'Portal de Certificados',
                     portalSubtitle: settings?.portal_subtitle || 'Encontre os seus certificados.',
-                    currentTheme: (settings?.current_theme as ThemeId) || 'blue'
+                    currentTheme: (settings?.current_theme as ThemeId) || 'blue',
+                    customTheme: settings?.custom_colors ? { ...state.customTheme, colors: settings.custom_colors } : state.customTheme
                 }
             });
         };

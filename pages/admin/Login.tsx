@@ -120,9 +120,6 @@ const Login: React.FC = () => {
                         </button>
                     </div>
                 </div>
-                <p className="text-center text-xs text-gray-400 mt-6 uppercase tracking-widest font-semibold">
-                    CertifyPro Admin System
-                </p>
             </div>
         </div>
     );

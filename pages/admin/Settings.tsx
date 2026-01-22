@@ -1,11 +1,14 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useAppContext, THEMES } from '../../context/AppContext';
-import { Check, Monitor, Palette, Sliders, RefreshCw, Image as ImageIcon, Upload, Trash2, Type, FileText } from 'lucide-react';
+import { Check, Monitor, Palette, Sliders, RefreshCw, Image as ImageIcon, Upload, Trash2, Type, FileText, Save, Loader2 } from 'lucide-react';
 import type { ThemeId, ThemeConfig } from '../../types';
+import { supabase } from '../../lib/supabase';
 
 const Settings: React.FC = () => {
     const { state, dispatch } = useAppContext();
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveSuccess, setSaveSuccess] = useState(false);
 
     const handleThemeChange = (themeId: ThemeId) => {
         dispatch({ type: 'UPDATE_THEME', payload: themeId });
@@ -39,20 +42,63 @@ const Settings: React.FC = () => {
             payload: { [field]: value }
         });
     };
+
+    const handleSaveToCloud = async () => {
+        setIsSaving(true);
+        setSaveSuccess(false);
+
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error("Utilizador não autenticado");
+
+            const { error } = await supabase
+                .from('app_settings')
+                .upsert({
+                    user_id: user.id,
+                    portal_title: state.portalTitle,
+                    portal_subtitle: state.portalSubtitle,
+                    current_theme: state.currentTheme,
+                    app_logo: state.appLogo,
+                    custom_colors: state.customTheme.colors
+                });
+
+            if (error) throw error;
+
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 3000);
+        } catch (err) {
+            console.error("Erro ao guardar definições:", err);
+            alert("Erro ao guardar definições na nuvem. Verifique a sua ligação.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
     
-    // Helper to allow looping through the static themes plus the dynamic custom one for the cards
-    // Fixed: Cast Object.values(THEMES) to ThemeConfig[] to avoid unknown type error
     const allThemesDisplay = [
         ...(Object.values(THEMES) as ThemeConfig[]).filter(t => t.id !== 'custom'),
-        state.customTheme // Use the state version of custom theme for the card display
+        state.customTheme 
     ];
 
     return (
-        <div className="max-w-4xl mx-auto pb-10">
-            <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                <Palette className="h-8 w-8 text-brand-600" />
-                Definições e Aparência
-            </h2>
+        <div className="max-w-4xl mx-auto pb-20 relative">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
+                    <Palette className="h-8 w-8 text-brand-600" />
+                    Definições e Aparência
+                </h2>
+                <button 
+                    onClick={handleSaveToCloud}
+                    disabled={isSaving}
+                    className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold shadow-lg transition-all ${
+                        saveSuccess 
+                        ? 'bg-green-500 text-white' 
+                        : 'bg-brand-600 text-white hover:bg-brand-700 active:scale-95'
+                    } disabled:opacity-50`}
+                >
+                    {isSaving ? <Loader2 className="animate-spin h-5 w-5" /> : saveSuccess ? <Check className="h-5 w-5" /> : <Save className="h-5 w-5" />}
+                    {isSaving ? 'A Guardar...' : saveSuccess ? 'Guardado!' : 'Guardar Alterações'}
+                </button>
+            </div>
 
             {/* Visual Identity / Logo Section */}
             <div className="bg-white rounded-lg shadow overflow-hidden mb-8">
@@ -172,7 +218,6 @@ const Settings: React.FC = () => {
                                         : 'border-gray-200 hover:border-gray-300 hover:shadow-md'
                                 }`}
                             >
-                                {/* Color Preview Header */}
                                 <div 
                                     className="h-24 w-full flex items-center justify-center relative"
                                     style={{ 
@@ -190,8 +235,6 @@ const Settings: React.FC = () => {
                                         </div>
                                     )}
                                 </div>
-                                
-                                {/* Info Footer */}
                                 <div className="p-4 bg-white flex-1 w-full">
                                     <h4 className="font-bold text-gray-900 text-sm">{theme.name}</h4>
                                     <div className="flex mt-3 gap-1">
@@ -206,9 +249,8 @@ const Settings: React.FC = () => {
                 </div>
             </div>
 
-            {/* Custom Theme Editor - Only shows if 'custom' is active */}
             {state.currentTheme === 'custom' && (
-                <div className="bg-white rounded-lg shadow overflow-hidden border border-brand-200 animate-fadeIn">
+                <div className="bg-white rounded-lg shadow overflow-hidden border border-brand-200 animate-fadeIn mb-10">
                     <div className="p-4 border-b border-gray-100 bg-brand-50 flex justify-between items-center">
                         <h3 className="font-semibold text-brand-900 flex items-center gap-2">
                             <Sliders className="h-5 w-5" />
@@ -246,31 +288,18 @@ const Settings: React.FC = () => {
                             </div>
                         ))}
                     </div>
-                    <div className="bg-gray-50 px-6 py-4">
-                        <p className="text-sm text-gray-500 flex items-center">
-                            <RefreshCw className="h-4 w-4 mr-2" />
-                            As alterações são aplicadas instantaneamente em toda a aplicação.
-                        </p>
-                    </div>
                 </div>
             )}
             
-            <div className="mt-8 p-4 bg-brand-50 rounded-lg border border-brand-100">
-                <h4 className="font-semibold text-brand-700 mb-2">Pré-visualização de Elementos</h4>
-                <div className="flex gap-4 flex-wrap items-center">
-                    <button className="px-4 py-2 bg-brand-600 text-white rounded-lg shadow hover:bg-brand-700 transition">
-                        Botão Primário
-                    </button>
-                    <button className="px-4 py-2 bg-white text-brand-600 border border-brand-600 rounded-lg hover:bg-brand-50 transition">
-                        Botão Secundário
-                    </button>
-                    <span className="px-3 py-1 bg-brand-100 text-brand-700 rounded-full text-sm font-medium flex items-center">
-                        Badge
-                    </span>
-                    <div className="h-10 w-10 rounded-full bg-brand-500 flex items-center justify-center text-white font-bold shadow">
-                        A
-                    </div>
-                </div>
+            <div className="fixed bottom-6 right-6 md:right-12 z-40">
+                <button 
+                    onClick={handleSaveToCloud}
+                    disabled={isSaving}
+                    className="flex items-center gap-2 px-8 py-4 bg-brand-600 text-white rounded-full font-bold shadow-2xl hover:bg-brand-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                    {isSaving ? <Loader2 className="animate-spin h-6 w-6" /> : saveSuccess ? <Check className="h-6 w-6" /> : <Save className="h-6 w-6" />}
+                    {isSaving ? 'A Guardar...' : saveSuccess ? 'Definições Guardadas!' : 'Guardar na Nuvem'}
+                </button>
             </div>
         </div>
     );
