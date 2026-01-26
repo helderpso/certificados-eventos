@@ -171,8 +171,7 @@ const Templates: React.FC = () => {
                     ) : (
                         <div className="p-16 text-center">
                             <AlertTriangle className="mx-auto text-gray-200 mb-2" size={32} />
-                            <p className="text-gray-400 font-bold italic">Nenhuma categoria encontrada no sistema.</p>
-                            <p className="text-xs text-gray-400 mt-1">Verifique as permissões de RLS no Supabase.</p>
+                            <p className="text-gray-400 font-bold italic">Nenhuma categoria encontrada</p>
                         </div>
                     )}
                 </div>
