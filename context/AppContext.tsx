@@ -80,7 +80,6 @@ const defaultInitialState: AppState = {
     isLoading: true
 };
 
-// Helper para normalizar IDs para String
 const normId = (id: any): string => id ? String(id) : '';
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -132,21 +131,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const { data: { session } } = await supabase.auth.getSession();
             const { data: settings } = await supabase.from('app_settings').select('*').maybeSingle();
             
+            // Buscar dados explicitamente para evitar caches indesejados
             const [eventsRes, categoriesRes, templatesRes, participantsRes, historyRes] = await Promise.all([
                 supabase.from('events').select('*'),
-                supabase.from('categories').select('*'),
+                supabase.from('categories').select('*').order('name'),
                 supabase.from('templates').select('*'),
                 supabase.from('participants').select('*'),
                 supabase.from('import_history').select('*')
             ]);
 
-            // Verificação de erros no console para debug
-            if (categoriesRes.error) console.error("Erro ao carregar categorias:", categoriesRes.error);
-            if (templatesRes.error) console.error("Erro ao carregar modelos:", templatesRes.error);
+            if (categoriesRes.error) console.error("ERRO SUPABASE CATEGORIAS:", categoriesRes.error);
+            else console.log(`Sucesso: ${categoriesRes.data.length} categorias carregadas.`);
 
             const initialStateUpdate: Partial<AppState> = {
                 events: (eventsRes.data || []).map(e => ({ ...e, id: normId(e.id) })),
-                categories: (categoriesRes.data || []).map(c => ({ ...c, id: normId(c.id) })),
+                categories: (categoriesRes.data || []).map(c => ({ 
+                    id: normId(c.id), 
+                    name: String(c.name || 'Sem nome') 
+                })),
                 importHistory: (historyRes.data || []).map(h => ({
                     id: normId(h.id),
                     date: h.created_at || h.date,
@@ -190,7 +192,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
             dispatch({ type: 'SET_INITIAL_STATE', payload: initialStateUpdate });
         } catch (err) {
-            console.error("Critical Load Error:", err);
+            console.error("ERRO CRÍTICO NO LOAD:", err);
             dispatch({ type: 'SET_LOADING', payload: false });
         }
     };
