@@ -124,10 +124,7 @@ const CertificateFinder: React.FC = () => {
                                         <p className="font-black text-xl text-gray-900 group-hover:text-brand-600 transition-colors">{cert.event.name}</p>
                                         <div className="flex flex-wrap justify-center sm:justify-start gap-2 mt-2">
                                             <span className="px-3 py-1 bg-brand-50 text-brand-700 text-[10px] font-black rounded-full uppercase tracking-wider border border-brand-100">
-                                                {state.categories.find(c => c.id === cert.participant.categoryId)?.name || 'Participante'}
-                                            </span>
-                                            <span className="px-3 py-1 bg-gray-50 text-gray-400 text-[10px] font-bold rounded-full uppercase tracking-wider">
-                                                ID: {cert.participant.id.slice(0,8)}
+                                                {state.categories.find(c => String(c.id) === String(cert.participant.categoryId))?.name || 'Participante'}
                                             </span>
                                         </div>
                                     </div>
@@ -137,7 +134,7 @@ const CertificateFinder: React.FC = () => {
                                         className="w-full sm:w-auto bg-green-600 text-white px-8 py-3.5 rounded-2xl flex items-center justify-center gap-2 font-black hover:bg-green-700 transition-all shadow-lg hover:shadow-green-200 active:scale-95 disabled:opacity-50"
                                     >
                                         {isDownloading === key ? <Loader2 size={20} className="animate-spin" /> : <Download size={20} />}
-                                        {isDownloading === key ? 'A otimizar PDF...' : 'Baixar PDF'}
+                                        {isDownloading === key ? 'A otimizar PDF...' : 'Descarregar PDF'}
                                     </button>
                                 </div>
                             );
