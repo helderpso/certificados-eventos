@@ -80,6 +80,9 @@ const defaultInitialState: AppState = {
     isLoading: true
 };
 
+// Helper para normalizar IDs para String
+const normId = (id: any): string => id ? String(id) : '';
+
 const appReducer = (state: AppState, action: Action): AppState => {
     switch (action.type) {
         case 'SET_LOADING': return { ...state, isLoading: action.payload };
@@ -87,22 +90,22 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case 'LOGIN': return { ...state, isAuthenticated: true, currentUser: action.payload || state.currentUser };
         case 'LOGOUT': return { ...state, isAuthenticated: false, currentUser: defaultInitialState.currentUser, isLoading: false };
         case 'ADD_EVENT': return { ...state, events: [...state.events, action.payload] };
-        case 'UPDATE_EVENT': return { ...state, events: state.events.map(e => e.id === action.payload.id ? action.payload : e) };
-        case 'DELETE_EVENT': return { ...state, events: state.events.filter(e => e.id !== action.payload) };
+        case 'UPDATE_EVENT': return { ...state, events: state.events.map(e => normId(e.id) === normId(action.payload.id) ? action.payload : e) };
+        case 'DELETE_EVENT': return { ...state, events: state.events.filter(e => normId(e.id) !== normId(action.payload)) };
         case 'ADD_CATEGORY': return { ...state, categories: [...state.categories, action.payload] };
-        case 'UPDATE_CATEGORY': return { ...state, categories: state.categories.map(c => c.id === action.payload.id ? action.payload : c) };
-        case 'DELETE_CATEGORY': return { ...state, categories: state.categories.filter(c => c.id !== action.payload) };
+        case 'UPDATE_CATEGORY': return { ...state, categories: state.categories.map(c => normId(c.id) === normId(action.payload.id) ? action.payload : c) };
+        case 'DELETE_CATEGORY': return { ...state, categories: state.categories.filter(c => normId(c.id) !== normId(action.payload)) };
         case 'ADD_TEMPLATE': return { ...state, templates: [...state.templates, action.payload] };
-        case 'UPDATE_TEMPLATE': return { ...state, templates: state.templates.map(t => t.id === action.payload.id ? action.payload : t) };
-        case 'DELETE_TEMPLATE': return { ...state, templates: state.templates.filter(t => t.id !== action.payload) };
+        case 'UPDATE_TEMPLATE': return { ...state, templates: state.templates.map(t => normId(t.id) === normId(action.payload.id) ? action.payload : t) };
+        case 'DELETE_TEMPLATE': return { ...state, templates: state.templates.filter(t => normId(t.id) !== normId(action.payload)) };
         case 'ADD_PARTICIPANTS': return { ...state, participants: [...state.participants, ...action.payload] };
-        case 'UPDATE_PARTICIPANT': return { ...state, participants: state.participants.map(p => p.id === action.payload.id ? action.payload : p) };
-        case 'DELETE_PARTICIPANT': return { ...state, participants: state.participants.filter(p => p.id !== action.payload) };
+        case 'UPDATE_PARTICIPANT': return { ...state, participants: state.participants.map(p => normId(p.id) === normId(action.payload.id) ? action.payload : p) };
+        case 'DELETE_PARTICIPANT': return { ...state, participants: state.participants.filter(p => normId(p.id) !== normId(action.payload)) };
         case 'ADD_IMPORT_HISTORY': return { ...state, importHistory: [...state.importHistory, action.payload] };
         case 'DELETE_IMPORT': return { 
             ...state, 
-            importHistory: state.importHistory.filter(h => h.id !== action.payload),
-            participants: state.participants.filter(p => p.importId !== action.payload)
+            importHistory: state.importHistory.filter(h => normId(h.id) !== normId(action.payload)),
+            participants: state.participants.filter(p => normId(p.importId) !== normId(action.payload))
         };
         case 'UPDATE_LOGO': return { ...state, appLogo: action.payload };
         case 'UPDATE_THEME': return { ...state, currentTheme: action.payload };
@@ -137,33 +140,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 supabase.from('import_history').select('*')
             ]);
 
+            // Verificação de erros no console para debug
+            if (categoriesRes.error) console.error("Erro ao carregar categorias:", categoriesRes.error);
+            if (templatesRes.error) console.error("Erro ao carregar modelos:", templatesRes.error);
+
             const initialStateUpdate: Partial<AppState> = {
-                events: eventsRes.data || [],
-                categories: categoriesRes.data || [],
-                importHistory: historyRes.data?.map(h => ({
-                    id: h.id,
+                events: (eventsRes.data || []).map(e => ({ ...e, id: normId(e.id) })),
+                categories: (categoriesRes.data || []).map(c => ({ ...c, id: normId(c.id) })),
+                importHistory: (historyRes.data || []).map(h => ({
+                    id: normId(h.id),
                     date: h.created_at || h.date,
                     fileName: h.file_name,
                     count: h.count,
-                    eventId: h.event_id,
+                    eventId: normId(h.event_id),
                     categoryName: h.category_name,
                     status: h.status
-                })) || [],
-                participants: participantsRes.data?.map(p => ({
-                    id: p.id,
+                })),
+                participants: (participantsRes.data || []).map(p => ({
+                    id: normId(p.id),
                     name: p.name,
                     email: p.email,
-                    eventId: p.event_id,
-                    categoryId: p.category_id,
-                    importId: p.import_id
-                })) || [],
-                templates: templatesRes.data?.map(t => ({
-                    id: t.id,
+                    eventId: normId(p.event_id),
+                    categoryId: normId(p.category_id),
+                    importId: normId(p.import_id)
+                })),
+                templates: (templatesRes.data || []).map(t => ({
+                    id: normId(t.id),
                     name: t.name,
-                    categoryId: t.category_id,
+                    categoryId: normId(t.category_id),
                     backgroundImage: t.background_image,
                     text: t.text_content
-                })) || [],
+                })),
                 appLogo: settings?.app_logo || '',
                 portalTitle: settings?.portal_title || defaultInitialState.portalTitle,
                 portalSubtitle: settings?.portal_subtitle || defaultInitialState.portalSubtitle,
