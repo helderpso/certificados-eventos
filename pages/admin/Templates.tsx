@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { supabase } from '../../lib/supabase';
 import type { Category, Template } from '../../types';
-import { Plus, Edit, Trash2, X, Eye, CheckCircle, AlertTriangle, Loader2, RefreshCcw } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Eye, CheckCircle, AlertTriangle, Loader2, Calendar } from 'lucide-react';
 import CertificatePreview from '../../components/CertificatePreview';
 import RichTextEditor from '../../components/RichTextEditor';
 
@@ -22,6 +22,7 @@ const Templates: React.FC = () => {
     
     const [templateName, setTemplateName] = useState('');
     const [templateCategory, setTemplateCategory] = useState('');
+    const [templateEvent, setTemplateEvent] = useState(''); // NOVO CAMPO
     const [templateImage, setTemplateImage] = useState<string>('');
     const [templateText, setTemplateText] = useState('<div style="text-align: center;"><font size="5">Certificamos que</font></div><div style="text-align: center;"><font size="7"><b>{{PARTICIPANT_NAME}}</b></font></div><div style="text-align: center;"><font size="4">participou no evento.</font></div>');
 
@@ -101,6 +102,7 @@ const Templates: React.FC = () => {
                 ...(currentTemplate?.id ? { id: currentTemplate.id } : {}),
                 name: templateName,
                 category_id: templateCategory,
+                event_id: templateEvent || null, // ASSOCIAÇÃO COM EVENTO
                 background_image: templateImage,
                 text_content: templateText
             };
@@ -117,6 +119,7 @@ const Templates: React.FC = () => {
                 id: String(data.id),
                 name: data.name,
                 categoryId: String(data.category_id),
+                eventId: data.event_id ? String(data.event_id) : undefined,
                 backgroundImage: data.background_image,
                 text: data.text_content
             };
@@ -191,6 +194,7 @@ const Templates: React.FC = () => {
                         setCurrentTemplate(null); 
                         setTemplateName(''); 
                         setTemplateCategory(''); 
+                        setTemplateEvent('');
                         setTemplateImage('');
                         setTemplateText('<div style="text-align: center;"><font size="5">Certificamos que</font></div><div style="text-align: center;"><font size="7"><b>{{PARTICIPANT_NAME}}</b></font></div><div style="text-align: center;"><font size="4">participou no evento.</font></div>');
                         setIsTemplateModalOpen(true); 
@@ -203,13 +207,25 @@ const Templates: React.FC = () => {
                     {state.templates.length > 0 ? (
                         state.templates.map(tpl => {
                             const category = state.categories.find(c => String(c.id) === String(tpl.categoryId));
+                            const event = state.events.find(e => String(e.id) === String(tpl.eventId));
                             return (
                                 <div key={tpl.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center hover:shadow-md transition">
-                                    <div>
-                                        <p className="font-black text-gray-900 text-lg">{tpl.name}</p>
-                                        <p className={`text-[10px] font-black uppercase tracking-widest mt-1 px-2 py-0.5 rounded-full inline-block ${category ? 'bg-brand-50 text-brand-700 border border-brand-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
-                                            {category ? category.name : 'CATEGORIA NÃO ENCONTRADA'}
-                                        </p>
+                                    <div className="space-y-1">
+                                        <p className="font-black text-gray-900 text-lg leading-tight">{tpl.name}</p>
+                                        <div className="flex flex-wrap gap-2 items-center">
+                                            <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${category ? 'bg-brand-50 text-brand-700 border-brand-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
+                                                {category ? category.name : 'CATEGORIA NÃO ENCONTRADA'}
+                                            </span>
+                                            {event ? (
+                                                <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 flex items-center gap-1">
+                                                    <Calendar size={10}/> {event.name}
+                                                </span>
+                                            ) : (
+                                                <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
+                                                    Global (Todos os Eventos)
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="flex gap-1">
                                         <button onClick={() => { setTemplateToPreview(tpl); setIsPreviewModalOpen(true); }} className="p-2.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition" title="Visualizar"><Eye size={20}/></button>
@@ -217,6 +233,7 @@ const Templates: React.FC = () => {
                                             setCurrentTemplate(tpl);
                                             setTemplateName(tpl.name);
                                             setTemplateCategory(String(tpl.categoryId));
+                                            setTemplateEvent(tpl.eventId ? String(tpl.eventId) : '');
                                             setTemplateImage(tpl.backgroundImage);
                                             setTemplateText(tpl.text);
                                             setIsTemplateModalOpen(true);
@@ -267,7 +284,7 @@ const Templates: React.FC = () => {
                         <form onSubmit={handleTemplateSubmit} className="flex-1 overflow-auto p-8 space-y-10">
                             {errorMessage && <div className="p-5 bg-red-50 text-red-600 border border-red-100 rounded-2xl font-bold animate-fadeIn">{errorMessage}</div>}
                             
-                            <div className="grid md:grid-cols-2 gap-8">
+                            <div className="grid md:grid-cols-3 gap-8">
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Identificação do Modelo</label>
                                     <input type="text" value={templateName} onChange={e => setTemplateName(e.target.value)} placeholder="Ex: Modelo Standard Azul" required className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-brand-500 transition outline-none font-bold" />
@@ -277,6 +294,13 @@ const Templates: React.FC = () => {
                                     <select value={templateCategory} onChange={e => setTemplateCategory(e.target.value)} required className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-brand-500 transition outline-none bg-white font-bold text-gray-800">
                                         <option value="">Selecione uma categoria...</option>
                                         {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Evento Associado (Opcional)</label>
+                                    <select value={templateEvent} onChange={e => setTemplateEvent(e.target.value)} className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-brand-500 transition outline-none bg-white font-bold text-gray-800">
+                                        <option value="">Global (Disponível em todos os eventos)</option>
+                                        {state.events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
                                     </select>
                                 </div>
                             </div>

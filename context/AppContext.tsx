@@ -141,7 +141,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             ]);
 
             if (categoriesRes.error) console.error("ERRO SUPABASE CATEGORIAS:", categoriesRes.error);
-            else console.log(`Sucesso: ${categoriesRes.data.length} categorias carregadas.`);
 
             const initialStateUpdate: Partial<AppState> = {
                 events: (eventsRes.data || []).map(e => ({ ...e, id: normId(e.id) })),
@@ -173,6 +172,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                     id: normId(t.id),
                     name: t.name,
                     categoryId: normId(t.category_id),
+                    eventId: normId(t.event_id), // MAPEADO AQUI
                     backgroundImage: t.background_image,
                     text: t.text_content
                 })),

@@ -33,8 +33,23 @@ const CertificateFinder: React.FC = () => {
             const certs = state.participants
                 .filter(p => p.email.toLowerCase() === trimmedEmail)
                 .map(participant => {
-                    const event = state.events.find(e => e.id === participant.eventId);
-                    const template = state.templates.find(t => t.categoryId === participant.categoryId);
+                    const event = state.events.find(e => String(e.id) === String(participant.eventId));
+                    
+                    // Lógica Refinada:
+                    // 1. Procura modelo específico: Categoria + Evento
+                    // 2. Fallback: Modelo global para aquela Categoria (eventId vazio)
+                    let template = state.templates.find(t => 
+                        String(t.categoryId) === String(participant.categoryId) && 
+                        String(t.eventId) === String(participant.eventId)
+                    );
+                    
+                    if (!template) {
+                        template = state.templates.find(t => 
+                            String(t.categoryId) === String(participant.categoryId) && 
+                            (!t.eventId || t.eventId === '')
+                        );
+                    }
+
                     if (event && template) return { participant, event, template };
                     return null;
                 })

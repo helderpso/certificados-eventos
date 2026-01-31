@@ -14,6 +14,7 @@ export interface Template {
     id: string;
     name: string;
     categoryId: string;
+    eventId?: string; // Associação opcional a um evento específico
     backgroundImage: string; // base64 string
     text: string; // includes {{PARTICIPANT_NAME}}
 }
