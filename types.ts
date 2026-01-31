@@ -25,6 +25,9 @@ export interface Participant {
     eventId: string;
     categoryId: string;
     importId?: string; // Links this participant to a specific batch import
+    customVar1?: string;
+    customVar2?: string;
+    customVar3?: string;
 }
 
 export interface Certificate {

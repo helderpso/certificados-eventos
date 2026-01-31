@@ -30,6 +30,9 @@ const Events: React.FC = () => {
     const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
     const [editName, setEditName] = useState('');
     const [editCategory, setEditCategory] = useState('');
+    const [editVar1, setEditVar1] = useState('');
+    const [editVar2, setEditVar2] = useState('');
+    const [editVar3, setEditVar3] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('');
     const [csvFile, setCsvFile] = useState<File | null>(null);
 
@@ -107,17 +110,23 @@ const Events: React.FC = () => {
                     const batch = results.data.map((row: any) => {
                         const name = row.name || row.Nome || row.NOME || row.participant_name || row.nome_completo;
                         const email = row.email || row['e-mail'] || row.Email || row['E-MAIL'] || row.Email_Address;
+                        const custom1 = row.custom1 || row.Custom1 || row.Variavel1 || row.variavel1;
+                        const custom2 = row.custom2 || row.Custom2 || row.Variavel2 || row.variavel2;
+                        const custom3 = row.custom3 || row.Custom3 || row.Variavel3 || row.variavel3;
                         
                         return { 
                             name: name?.trim(), 
                             email: email?.trim(), 
                             event_id: selectedEventForParticipants.id, 
                             category_id: selectedCategory, 
-                            import_id: importId 
+                            import_id: importId,
+                            custom_var1: custom1?.trim() || '',
+                            custom_var2: custom2?.trim() || '',
+                            custom_var3: custom3?.trim() || ''
                         };
                     }).filter(x => x.name && x.email);
 
-                    if (!batch.length) throw new Error("O ficheiro CSV não contém colunas reconhecidas (use 'name' e 'email').");
+                    if (!batch.length) throw new Error("O ficheiro CSV não contém colunas reconhecidas (use 'name', 'email', e opcionalmente 'custom1', 'custom2', 'custom3').");
 
                     const { error: hErr } = await supabase.from('import_history').insert({ 
                         id: importId, 
@@ -158,7 +167,10 @@ const Events: React.FC = () => {
                             email: p.email, 
                             eventId: p.event_id, 
                             categoryId: p.category_id, 
-                            importId: p.import_id 
+                            importId: p.import_id,
+                            customVar1: p.custom_var1,
+                            customVar2: p.custom_var2,
+                            customVar3: p.custom_var3
                         })) 
                     });
 
@@ -180,7 +192,13 @@ const Events: React.FC = () => {
         try {
             const { data, error } = await supabase
                 .from('participants')
-                .update({ name: editName, category_id: editCategory })
+                .update({ 
+                    name: editName, 
+                    category_id: editCategory,
+                    custom_var1: editVar1,
+                    custom_var2: editVar2,
+                    custom_var3: editVar3
+                })
                 .eq('id', editingParticipant.id)
                 .select()
                 .single();
@@ -195,7 +213,10 @@ const Events: React.FC = () => {
                     email: data.email,
                     eventId: data.event_id,
                     categoryId: data.category_id,
-                    importId: data.import_id
+                    importId: data.import_id,
+                    customVar1: data.custom_var1,
+                    customVar2: data.custom_var2,
+                    customVar3: data.custom_var3
                 } 
             });
             setIsEditParticipantModalOpen(false);
@@ -313,7 +334,15 @@ const Events: React.FC = () => {
                                                             <button onClick={() => handleDownload(p)} disabled={isDownloading === p.id} className="p-2 text-brand-600 hover:bg-brand-50 rounded-lg transition" title="Baixar PDF Otimizado">
                                                                 {isDownloading === p.id ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18}/>}
                                                             </button>
-                                                            <button onClick={() => { setEditingParticipant(p); setEditName(p.name); setEditCategory(String(p.categoryId)); setIsEditParticipantModalOpen(true); }} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"><Edit size={18}/></button>
+                                                            <button onClick={() => { 
+                                                                setEditingParticipant(p); 
+                                                                setEditName(p.name); 
+                                                                setEditCategory(String(p.categoryId)); 
+                                                                setEditVar1(p.customVar1 || '');
+                                                                setEditVar2(p.customVar2 || '');
+                                                                setEditVar3(p.customVar3 || '');
+                                                                setIsEditParticipantModalOpen(true); 
+                                                            }} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"><Edit size={18}/></button>
                                                             <button onClick={() => setDeleteConfig({ isOpen: true, type: 'participant', id: p.id, title: 'Remover', message: 'Deseja remover este participante?' })} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"><Trash2 size={18}/></button>
                                                         </td>
                                                     </tr>
@@ -356,7 +385,10 @@ const Events: React.FC = () => {
                                                 <input type="file" accept=".csv" onChange={e => setCsvFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
                                                 <FileSpreadsheet className="mx-auto text-gray-300 group-hover:text-brand-500 transition mb-2" size={40} />
                                                 <p className="text-sm font-bold text-gray-600">{csvFile ? csvFile.name : 'Clique ou arraste o seu ficheiro .csv'}</p>
-                                                <p className="text-[10px] text-gray-400 mt-2 italic font-medium uppercase tracking-widest">O sistema deteta automaticamente colunas 'name', 'email'.</p>
+                                                <p className="text-[10px] text-gray-400 mt-2 italic font-medium uppercase tracking-widest leading-relaxed">
+                                                    Colunas aceites: 'name', 'email'. <br/>
+                                                    Opcionais: 'custom1', 'custom2', 'custom3'.
+                                                </p>
                                             </div>
                                         </label>
                                         <button onClick={handleImport} disabled={isActionLoading || !csvFile || !selectedCategory} className="w-full bg-brand-600 text-white p-4 rounded-2xl font-black shadow-xl hover:bg-brand-700 transition flex items-center justify-center gap-2">
@@ -396,9 +428,9 @@ const Events: React.FC = () => {
 
             {isEditParticipantModalOpen && editingParticipant && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-                    <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl">
+                    <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl overflow-y-auto max-h-[90vh]">
                         <h3 className="text-2xl font-black mb-6">Editar Participante</h3>
-                        <form onSubmit={handleUpdateParticipant} className="space-y-5">
+                        <form onSubmit={handleUpdateParticipant} className="space-y-4">
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Nome Completo</label>
                                 <input type="text" value={editName} onChange={e => setEditName(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
@@ -409,10 +441,27 @@ const Events: React.FC = () => {
                                     {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                 </select>
                             </div>
-                            <div className="flex gap-2 pt-4">
+                            
+                            <div className="pt-4 border-t space-y-4">
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Variáveis Personalizadas</p>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 1</label>
+                                    <input type="text" value={editVar1} onChange={e => setEditVar1(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Carga Horária" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 2</label>
+                                    <input type="text" value={editVar2} onChange={e => setEditVar2(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Local" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 3</label>
+                                    <input type="text" value={editVar3} onChange={e => setEditVar3(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Título da Palestra" />
+                                </div>
+                            </div>
+
+                            <div className="flex gap-2 pt-6">
                                 <button type="button" onClick={() => setIsEditParticipantModalOpen(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Cancelar</button>
                                 <button type="submit" disabled={isActionLoading} className="flex-1 py-3 bg-brand-600 text-white rounded-xl font-black shadow-lg hover:bg-brand-700 transition">
-                                    {isActionLoading ? <Loader2 className="animate-spin mx-auto"/> : 'Guardar'}
+                                    {isActionLoading ? <Loader2 className="animate-spin mx-auto"/> : 'Guardar Alterações'}
                                 </button>
                             </div>
                         </form>
@@ -458,7 +507,7 @@ const Events: React.FC = () => {
                         <p className="text-sm text-gray-500 my-4 leading-relaxed">{deleteConfig.message}</p>
                         <div className="flex gap-3 mt-8">
                             <button onClick={() => setDeleteConfig({ ...deleteConfig, isOpen: false })} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Não</button>
-                            <button onClick={confirmDeleteAction} disabled={isActionLoading} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-black shadow-lg hover:bg-red-700 transition">Sim, Apagar</button>
+                            <button onClick={confirmDeleteAction} disabled={isActionLoading} className="flex-1 py-4 bg-red-600 text-white rounded-xl font-black shadow-lg hover:bg-red-700 transition">Sim, Apagar</button>
                         </div>
                     </div>
                 </div>

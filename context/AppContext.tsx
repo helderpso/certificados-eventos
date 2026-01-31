@@ -164,7 +164,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                     email: p.email,
                     eventId: normId(p.event_id),
                     categoryId: normId(p.category_id),
-                    importId: normId(p.import_id)
+                    importId: normId(p.import_id),
+                    customVar1: p.custom_var1 || '',
+                    customVar2: p.custom_var2 || '',
+                    customVar3: p.custom_var3 || ''
                 })),
                 templates: (templatesRes.data || []).map(t => ({
                     id: normId(t.id),

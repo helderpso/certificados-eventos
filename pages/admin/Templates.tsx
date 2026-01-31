@@ -42,7 +42,14 @@ const Templates: React.FC = () => {
         message: ''
     });
 
-    const AVAILABLE_VARIABLES = ['{{PARTICIPANT_NAME}}', '{{EVENT_NAME}}', '{{DATE}}'];
+    const AVAILABLE_VARIABLES = [
+        '{{PARTICIPANT_NAME}}', 
+        '{{EVENT_NAME}}', 
+        '{{DATE}}',
+        '{{CUSTOM_1}}',
+        '{{CUSTOM_2}}',
+        '{{CUSTOM_3}}'
+    ];
 
     const handleCategorySubmit = async (e: React.FormEvent) => {
         e.preventDefault();

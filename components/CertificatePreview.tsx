@@ -17,6 +17,11 @@ const CertificatePreview: React.FC<CertificatePreviewProps> = ({ certificate }) 
         text = text.replace(/{{EVENT_NAME}}/g, event.name || '');
         text = text.replace(/{{DATE}}/g, new Date(event.date).toLocaleDateString('pt-PT') || '');
         
+        // Variáveis Personalizadas
+        text = text.replace(/{{CUSTOM_1}}/g, participant.customVar1 || '');
+        text = text.replace(/{{CUSTOM_2}}/g, participant.customVar2 || '');
+        text = text.replace(/{{CUSTOM_3}}/g, participant.customVar3 || '');
+        
         return text;
     }, [template.text, participant, event]);
 
