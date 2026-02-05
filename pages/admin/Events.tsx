@@ -53,8 +53,26 @@ const Events: React.FC = () => {
 
     const handleDownload = async (p: Participant) => {
         if (!selectedEventForParticipants) return;
-        const template = state.templates.find(t => String(t.categoryId) === String(p.categoryId));
-        if (!template) return alert("Nenhum modelo configurado para esta categoria de participante.");
+        
+        // LÓGICA DE BUSCA REFINADA (Igual ao Finder Público)
+        // 1. Tentar modelo específico do evento
+        let template = state.templates.find(t => 
+            String(t.categoryId) === String(p.categoryId) && 
+            String(t.eventId) === String(p.eventId)
+        );
+        
+        // 2. Fallback para modelo global da categoria
+        if (!template) {
+            template = state.templates.find(t => 
+                String(t.categoryId) === String(p.categoryId) && 
+                (!t.eventId || t.eventId === '')
+            );
+        }
+
+        if (!template) {
+            const catName = state.categories.find(c => String(c.id) === String(p.categoryId))?.name || 'esta categoria';
+            return alert(`Nenhum modelo (específico ou global) configurado para a categoria "${catName}".`);
+        }
 
         setIsDownloading(p.id);
         setTempCert({ participant: p, event: selectedEventForParticipants, template });
