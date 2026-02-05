@@ -54,14 +54,11 @@ const Events: React.FC = () => {
     const handleDownload = async (p: Participant) => {
         if (!selectedEventForParticipants) return;
         
-        // LÓGICA DE BUSCA REFINADA (Igual ao Finder Público)
-        // 1. Tentar modelo específico do evento
         let template = state.templates.find(t => 
             String(t.categoryId) === String(p.categoryId) && 
             String(t.eventId) === String(p.eventId)
         );
         
-        // 2. Fallback para modelo global da categoria
         if (!template) {
             template = state.templates.find(t => 
                 String(t.categoryId) === String(p.categoryId) && 
@@ -120,17 +117,23 @@ const Events: React.FC = () => {
         
         Papa.parse(csvFile, {
             header: true, 
-            skipEmptyLines: true,
+            skipEmptyLines: 'greedy',
+            // Limpeza agressiva: remove BOM (\ufeff), espaços invisíveis e normaliza para minúsculas
+            transformHeader: (header) => header.replace(/[\uFEFF\u200B\u00A0]/g, '').trim().toLowerCase(),
             complete: async (results) => {
                 try {
                     const importId = crypto.randomUUID();
                     const now = new Date().toISOString();
+                    
                     const batch = results.data.map((row: any) => {
-                        const name = row.name || row.Nome || row.NOME || row.participant_name || row.nome_completo;
-                        const email = row.email || row['e-mail'] || row.Email || row['E-MAIL'] || row.Email_Address;
-                        const custom1 = row.custom1 || row.Custom1 || row.Variavel1 || row.variavel1;
-                        const custom2 = row.custom2 || row.Custom2 || row.Variavel2 || row.variavel2;
-                        const custom3 = row.custom3 || row.Custom3 || row.Variavel3 || row.variavel3;
+                        // Mapeamento flexível para nomes comuns de colunas
+                        const name = row.name || row.nome || row.participant_name || row.nome_completo || row.username;
+                        const email = row.email || row['e-mail'] || row.email_address || row.correio_eletronico;
+                        
+                        // Mapeamento de variáveis customizadas
+                        const custom1 = row.custom1 || row.custom_1 || row.variavel1 || row.variavel_1 || row.titulo || row.work;
+                        const custom2 = row.custom2 || row.custom_2 || row.variavel2 || row.variavel_2 || row.autores || row.authors;
+                        const custom3 = row.custom3 || row.custom_3 || row.variavel3 || row.variavel_3 || row.instituicao || row.institution;
                         
                         return { 
                             name: name?.trim(), 
@@ -144,7 +147,10 @@ const Events: React.FC = () => {
                         };
                     }).filter(x => x.name && x.email);
 
-                    if (!batch.length) throw new Error("O ficheiro CSV não contém colunas reconhecidas (use 'name', 'email', e opcionalmente 'custom1', 'custom2', 'custom3').");
+                    if (!batch.length) {
+                        const detected = results.meta.fields?.join(', ') || 'Nenhuma';
+                        throw new Error(`Colunas 'name' e 'email' não encontradas. Colunas detetadas: [${detected}]. Verifique se o separador do CSV é vírgula ou ponto-e-vírgula.`);
+                    }
 
                     const { error: hErr } = await supabase.from('import_history').insert({ 
                         id: importId, 
@@ -390,6 +396,10 @@ const Events: React.FC = () => {
                                         </div>
                                     )}
                                     <div className="space-y-4">
+                                        <div className="p-4 bg-brand-50 border border-brand-100 rounded-xl">
+                                            <p className="text-[10px] font-black uppercase text-brand-700 tracking-wider mb-2">Dica de Importação</p>
+                                            <p className="text-xs text-brand-800 leading-relaxed font-medium">O seu ficheiro CSV (Excel) pode usar colunas como <b>name</b>, <b>email</b>, <b>custom1</b> e <b>custom2</b>.</p>
+                                        </div>
                                         <label className="block">
                                             <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 block">1. Categoria do Lote</span>
                                             <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full bg-white border-2 border-gray-100 rounded-xl p-3 focus:border-brand-500 outline-none transition font-medium">
@@ -463,16 +473,16 @@ const Events: React.FC = () => {
                             <div className="pt-4 border-t space-y-4">
                                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Variáveis Personalizadas</p>
                                 <div>
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 1</label>
-                                    <input type="text" value={editVar1} onChange={e => setEditVar1(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Carga Horária" />
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 1 ({'{{CUSTOM_1}}'})</label>
+                                    <input type="text" value={editVar1} onChange={e => setEditVar1(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Título do Trabalho" />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 2</label>
-                                    <input type="text" value={editVar2} onChange={e => setEditVar2(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Local" />
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 2 ({'{{CUSTOM_2}}'})</label>
+                                    <input type="text" value={editVar2} onChange={e => setEditVar2(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Autores" />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 3</label>
-                                    <input type="text" value={editVar3} onChange={e => setEditVar3(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Título da Palestra" />
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 3 ({'{{CUSTOM_3}}'})</label>
+                                    <input type="text" value={editVar3} onChange={e => setEditVar3(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Instituição" />
                                 </div>
                             </div>
 
