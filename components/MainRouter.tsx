@@ -37,7 +37,7 @@ const MainRouter: React.FC = () => {
                     <div className="h-2 w-48 bg-gray-200 rounded-full overflow-hidden">
                         <div className="h-full bg-brand-600 w-1/2 animate-[loading_1.5s_infinite_linear]"></div>
                     </div>
-                    <p className="mt-4 text-sm text-gray-500 font-medium">A carregar o seu portal...</p>
+                    <p className="mt-4 text-sm text-gray-500 font-medium">A carregar</p>
                 </div>
                 <style>{`
                     @keyframes loading {
