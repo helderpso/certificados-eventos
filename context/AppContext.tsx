@@ -61,7 +61,8 @@ type Action =
     | { type: 'UPDATE_THEME'; payload: ThemeId }
     | { type: 'UPDATE_CUSTOM_THEME'; payload: Partial<ThemeConfig['colors']> }
     | { type: 'UPDATE_PORTAL_TEXT'; payload: { title?: string; subtitle?: string; metaTitle?: string } }
-    | { type: 'UPDATE_PROFILE'; payload: User };
+    | { type: 'UPDATE_PROFILE'; payload: User }
+    | { type: 'REFRESH_DATA'; payload: Partial<AppState> };
 
 const defaultInitialState: AppState = {
     isAuthenticated: false,
@@ -80,12 +81,16 @@ const defaultInitialState: AppState = {
     isLoading: true
 };
 
-const normId = (id: any): string => id ? String(id) : '';
+const normId = (id: any): string => {
+    if (id === null || id === undefined) return '';
+    return String(id).trim().toLowerCase();
+};
 
 const appReducer = (state: AppState, action: Action): AppState => {
     switch (action.type) {
         case 'SET_LOADING': return { ...state, isLoading: action.payload };
         case 'SET_INITIAL_STATE': return { ...state, ...action.payload, isLoading: false };
+        case 'REFRESH_DATA': return { ...state, ...action.payload };
         case 'LOGIN': return { ...state, isAuthenticated: true, currentUser: action.payload || state.currentUser };
         case 'LOGOUT': return { ...state, isAuthenticated: false, currentUser: defaultInitialState.currentUser, isLoading: false };
         case 'ADD_EVENT': return { ...state, events: [...state.events, action.payload] };
@@ -120,29 +125,27 @@ const appReducer = (state: AppState, action: Action): AppState => {
     }
 };
 
-const AppContext = createContext<{ state: AppState; dispatch: Dispatch<Action> } | undefined>(undefined);
+const AppContext = createContext<{ state: AppState; dispatch: Dispatch<Action>; refreshData: () => Promise<AppState> } | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [state, dispatch] = useReducer(appReducer, defaultInitialState);
 
-    const loadInitialData = async () => {
-        dispatch({ type: 'SET_LOADING', payload: true });
+    const loadInitialData = async (isRefresh = false): Promise<AppState> => {
+        if (!isRefresh) dispatch({ type: 'SET_LOADING', payload: true });
         try {
             const { data: { session } } = await supabase.auth.getSession();
             const { data: settings } = await supabase.from('app_settings').select('*').maybeSingle();
             
-            // Buscar dados explicitamente para evitar caches indesejados
+            // AUMENTADO O LIMITE PARA 10.000 EM TODAS AS QUERIES
             const [eventsRes, categoriesRes, templatesRes, participantsRes, historyRes] = await Promise.all([
-                supabase.from('events').select('*'),
-                supabase.from('categories').select('*').order('name'),
-                supabase.from('templates').select('*'),
-                supabase.from('participants').select('*'),
-                supabase.from('import_history').select('*')
+                supabase.from('events').select('*').limit(10000),
+                supabase.from('categories').select('*').order('name').limit(10000),
+                supabase.from('templates').select('*').limit(10000),
+                supabase.from('participants').select('*').limit(10000),
+                supabase.from('import_history').select('*').limit(10000)
             ]);
 
-            if (categoriesRes.error) console.error("ERRO SUPABASE CATEGORIAS:", categoriesRes.error);
-
-            const initialStateUpdate: Partial<AppState> = {
+            const dataState: Partial<AppState> = {
                 events: (eventsRes.data || []).map(e => ({ ...e, id: normId(e.id) })),
                 categories: (categoriesRes.data || []).map(c => ({ 
                     id: normId(c.id), 
@@ -160,7 +163,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 participants: (participantsRes.data || []).map(p => ({
                     id: normId(p.id),
                     name: p.name,
-                    email: p.email,
+                    email: String(p.email || '').trim().toLowerCase(),
                     eventId: normId(p.event_id),
                     categoryId: normId(p.category_id),
                     importId: normId(p.import_id),
@@ -172,7 +175,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                     id: normId(t.id),
                     name: t.name,
                     categoryId: normId(t.category_id),
-                    eventId: normId(t.event_id), // MAPEADO AQUI
+                    eventId: normId(t.event_id),
                     backgroundImage: t.background_image,
                     text: t.text_content
                 })),
@@ -185,20 +188,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             };
 
             if (session?.user) {
-                initialStateUpdate.isAuthenticated = true;
-                initialStateUpdate.currentUser = { 
+                dataState.isAuthenticated = true;
+                dataState.currentUser = { 
                     name: session.user.user_metadata.full_name || 'Admin', 
                     email: session.user.email!, 
                     password: '' 
                 };
             }
 
-            dispatch({ type: 'SET_INITIAL_STATE', payload: initialStateUpdate });
+            const finalState = { ...state, ...dataState, isLoading: false };
+
+            if (isRefresh) {
+                dispatch({ type: 'REFRESH_DATA', payload: dataState });
+            } else {
+                dispatch({ type: 'SET_INITIAL_STATE', payload: dataState });
+            }
+
+            return finalState as AppState;
         } catch (err) {
             console.error("ERRO CRÍTICO NO LOAD:", err);
             dispatch({ type: 'SET_LOADING', payload: false });
+            return state;
         }
     };
+
+    const refreshData = () => loadInitialData(true);
 
     useEffect(() => { loadInitialData(); }, []);
 
@@ -220,7 +234,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return () => subscription.unsubscribe();
     }, []);
 
-    return <AppContext.Provider value={{ state, dispatch }}>{children}</AppContext.Provider>;
+    return <AppContext.Provider value={{ state, dispatch, refreshData }}>{children}</AppContext.Provider>;
 };
 
 export const useAppContext = () => {
