@@ -6,7 +6,7 @@ import html2canvas from 'html2canvas';
 import { useAppContext } from '../../context/AppContext';
 import { supabase } from '../../lib/supabase';
 import type { Event, Participant, Certificate, Template, ImportRecord } from '../../types';
-import { Plus, Edit, Users, X, Loader2, Trash2, History, FileSpreadsheet, CheckCircle2, FileDown, AlertTriangle, ChevronLeft, ChevronRight, Search, RefreshCcw, Eye } from 'lucide-react';
+import { Plus, Edit, Users, X, Loader2, Trash2, History, FileSpreadsheet, CheckCircle2, FileDown, AlertTriangle, ChevronLeft, ChevronRight, Search, RefreshCcw, Eye, UserPlus } from 'lucide-react';
 import CertificatePreview from '../../components/CertificatePreview';
 
 const Events: React.FC = () => {
@@ -14,6 +14,7 @@ const Events: React.FC = () => {
     const [isEventModalOpen, setIsEventModalOpen] = useState(false);
     const [isParticipantModalOpen, setIsParticipantModalOpen] = useState(false);
     const [isEditParticipantModalOpen, setIsEditParticipantModalOpen] = useState(false);
+    const [isAddParticipantModalOpen, setIsAddParticipantModalOpen] = useState(false);
     const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isModalLoading, setIsModalLoading] = useState(false);
@@ -30,6 +31,13 @@ const Events: React.FC = () => {
     const itemsPerPage = 12;
     
     const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
+    const [newName, setNewName] = useState('');
+    const [newEmail, setNewEmail] = useState('');
+    const [newCategory, setNewCategory] = useState('');
+    const [newVar1, setNewVar1] = useState('');
+    const [newVar2, setNewVar2] = useState('');
+    const [newVar3, setNewVar3] = useState('');
+
     const [editName, setEditName] = useState('');
     const [editCategory, setEditCategory] = useState('');
     const [editVar1, setEditVar1] = useState('');
@@ -115,7 +123,6 @@ const Events: React.FC = () => {
         await fetchEventParticipants(event.id);
     };
 
-    // Helper para encontrar o modelo correto
     const findTemplateForParticipant = (p: Participant) => {
         let template = state.templates.find(t => 
             String(t.categoryId) === String(p.categoryId) && 
@@ -185,6 +192,51 @@ const Events: React.FC = () => {
                 setTempCert(null); 
             }
         }, 1200);
+    };
+
+    const handleAddManualParticipant = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedEventForParticipants || !newEmail || !newName || !newCategory) return;
+        
+        setIsActionLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('participants')
+                .insert([{
+                    name: newName,
+                    email: newEmail.trim().toLowerCase(),
+                    event_id: selectedEventForParticipants.id,
+                    category_id: newCategory,
+                    custom_var1: newVar1,
+                    custom_var2: newVar2,
+                    custom_var3: newVar3
+                }])
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            dispatch({ 
+                type: 'ADD_PARTICIPANTS', 
+                payload: [{
+                    id: String(data.id),
+                    name: data.name,
+                    email: data.email,
+                    eventId: String(data.event_id),
+                    categoryId: String(data.category_id),
+                    customVar1: data.custom_var1,
+                    customVar2: data.custom_var2,
+                    customVar3: data.custom_var3
+                }] 
+            });
+
+            setIsAddParticipantModalOpen(false);
+            setNewName(''); setNewEmail(''); setNewCategory(''); setNewVar1(''); setNewVar2(''); setNewVar3('');
+        } catch (err: any) {
+            alert("Erro ao adicionar participante: " + err.message);
+        } finally {
+            setIsActionLoading(false);
+        }
     };
 
     const handleImport = () => {
@@ -353,8 +405,8 @@ const Events: React.FC = () => {
                                 <>
                                     {participantModalTab === 'list' && (
                                         <div className="space-y-4 animate-fadeIn">
-                                            <div className="flex flex-col sm:flex-row gap-4 mb-4">
-                                                <div className="relative flex-1">
+                                            <div className="flex flex-col sm:flex-row gap-4 mb-4 items-center">
+                                                <div className="relative flex-1 w-full">
                                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18}/>
                                                     <input 
                                                         type="text" 
@@ -364,9 +416,14 @@ const Events: React.FC = () => {
                                                         className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 transition outline-none font-bold shadow-sm" 
                                                     />
                                                 </div>
-                                                <button onClick={() => fetchEventParticipants(selectedEventForParticipants.id)} className="flex items-center gap-2 px-4 py-2 text-xs font-black text-brand-600 hover:bg-brand-50 rounded-xl transition uppercase tracking-widest">
-                                                    <RefreshCcw size={14} /> Atualizar
-                                                </button>
+                                                <div className="flex gap-2 w-full sm:w-auto">
+                                                    <button onClick={() => setIsAddParticipantModalOpen(true)} className="flex items-center justify-center gap-2 px-4 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg hover:bg-brand-700 transition flex-1 sm:flex-none">
+                                                        <UserPlus size={18}/> Novo Participante
+                                                    </button>
+                                                    <button onClick={() => fetchEventParticipants(selectedEventForParticipants.id)} className="p-3 text-brand-600 hover:bg-brand-50 rounded-xl transition border border-brand-100">
+                                                        <RefreshCcw size={18} />
+                                                    </button>
+                                                </div>
                                             </div>
                                             
                                             <div className="border border-gray-100 rounded-2xl overflow-hidden bg-white shadow-xl">
@@ -497,10 +554,56 @@ const Events: React.FC = () => {
                 </div>
             )}
 
+            {/* Modal de Adicionar Participante Manualmente */}
+            {isAddParticipantModalOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+                    <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl overflow-y-auto max-h-[90vh] animate-scaleIn">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-2xl font-black">Novo Participante</h3>
+                            <button onClick={() => setIsAddParticipantModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition"><X/></button>
+                        </div>
+                        <form onSubmit={handleAddManualParticipant} className="space-y-4">
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Nome Completo</label>
+                                <input type="text" value={newName} onChange={e => setNewName(e.target.value)} required placeholder="Ex: Maria Silva" className="w-full bg-gray-50 border-none rounded-xl p-4 focus:ring-2 focus:ring-brand-500 font-bold outline-none" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">E-mail</label>
+                                <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required placeholder="Ex: maria@exemplo.com" className="w-full bg-gray-50 border-none rounded-xl p-4 focus:ring-2 focus:ring-brand-500 font-bold outline-none" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Categoria</label>
+                                <select value={newCategory} onChange={e => setNewCategory(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-4 focus:ring-2 focus:ring-brand-500 font-bold outline-none">
+                                    <option value="">Escolha uma categoria...</option>
+                                    {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
+                            </div>
+                            
+                            <div className="pt-4 border-t space-y-4">
+                                <p className="text-[10px] font-black text-brand-600 uppercase tracking-widest">Campos Dinâmicos (Opcional)</p>
+                                <input type="text" value={newVar1} onChange={e => setNewVar1(e.target.value)} placeholder="Variável 1 (ex: Cargo)" className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
+                                <input type="text" value={newVar2} onChange={e => setNewVar2(e.target.value)} placeholder="Variável 2 (ex: Instituição)" className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
+                                <input type="text" value={newVar3} onChange={e => setNewVar3(e.target.value)} placeholder="Variável 3 (ex: Nota)" className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
+                            </div>
+
+                            <div className="flex gap-3 pt-6">
+                                <button type="button" onClick={() => setIsAddParticipantModalOpen(false)} className="flex-1 py-4 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Cancelar</button>
+                                <button type="submit" disabled={isActionLoading} className="flex-1 py-4 bg-brand-600 text-white rounded-xl font-black shadow-lg hover:bg-brand-700 transition">
+                                    {isActionLoading ? <Loader2 className="animate-spin mx-auto"/> : 'Registar'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
             {isEditParticipantModalOpen && editingParticipant && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
                     <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl overflow-y-auto max-h-[90vh] animate-scaleIn">
-                        <h3 className="text-2xl font-black mb-6">Editar Participante</h3>
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-2xl font-black">Editar Participante</h3>
+                            <button onClick={() => setIsEditParticipantModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition"><X/></button>
+                        </div>
                         <form onSubmit={handleUpdateParticipant} className="space-y-4">
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Nome do Participante</label>
@@ -511,6 +614,12 @@ const Events: React.FC = () => {
                                 <select value={editCategory} onChange={e => setEditCategory(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-4 focus:ring-2 focus:ring-brand-500 font-bold outline-none">
                                     {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                 </select>
+                            </div>
+                            <div className="pt-4 border-t space-y-4">
+                                <p className="text-[10px] font-black text-brand-600 uppercase tracking-widest">Campos Dinâmicos</p>
+                                <input type="text" value={editVar1} onChange={e => setEditVar1(e.target.value)} placeholder="Variável 1" className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
+                                <input type="text" value={editVar2} onChange={e => setEditVar2(e.target.value)} placeholder="Variável 2" className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
+                                <input type="text" value={editVar3} onChange={e => setEditVar3(e.target.value)} placeholder="Variável 3" className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
                             </div>
                             <div className="flex gap-3 pt-6">
                                 <button type="button" onClick={() => setIsEditParticipantModalOpen(false)} className="flex-1 py-4 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Cancelar</button>
