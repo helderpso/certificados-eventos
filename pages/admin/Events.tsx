@@ -6,7 +6,7 @@ import html2canvas from 'html2canvas';
 import { useAppContext } from '../../context/AppContext';
 import { supabase } from '../../lib/supabase';
 import type { Event, Participant, Certificate, Template, ImportRecord } from '../../types';
-import { Plus, Edit, Users, X, Loader2, Trash2, History, FileSpreadsheet, CheckCircle2, FileDown, AlertTriangle, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Plus, Edit, Users, X, Loader2, Trash2, History, FileSpreadsheet, CheckCircle2, FileDown, AlertTriangle, ChevronLeft, ChevronRight, Search, RefreshCcw } from 'lucide-react';
 import CertificatePreview from '../../components/CertificatePreview';
 
 const Events: React.FC = () => {
@@ -15,6 +15,7 @@ const Events: React.FC = () => {
     const [isParticipantModalOpen, setIsParticipantModalOpen] = useState(false);
     const [isEditParticipantModalOpen, setIsEditParticipantModalOpen] = useState(false);
     const [isActionLoading, setIsActionLoading] = useState(false);
+    const [isModalLoading, setIsModalLoading] = useState(false);
     
     const [deleteConfig, setDeleteConfig] = useState<{ isOpen: boolean; type: 'event' | 'participant' | 'import' | null; id: string | null; title: string; message: string; }>({ isOpen: false, type: null, id: null, title: '', message: '' });
     const [participantModalTab, setParticipantModalTab] = useState<'list' | 'import' | 'history'>('list');
@@ -25,7 +26,7 @@ const Events: React.FC = () => {
     const [selectedEventForParticipants, setSelectedEventForParticipants] = useState<Event | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 10;
+    const itemsPerPage = 12;
     
     const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
     const [editName, setEditName] = useState('');
@@ -40,16 +41,83 @@ const Events: React.FC = () => {
     const [tempCert, setTempCert] = useState<Certificate | null>(null);
     const downloadRef = useRef<HTMLDivElement>(null);
 
+    // Lista de eventos ordenada por data
     const sortedEvents = useMemo(() => [...state.events].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [state.events]);
+
+    // Filtro local de participantes (após garantir que o estado local está sincronizado com a BD)
     const filteredParticipants = useMemo(() => {
         if (!selectedEventForParticipants) return [];
-        let p = state.participants.filter(x => String(x.eventId) === String(selectedEventForParticipants.id));
-        if (searchTerm) p = p.filter(x => x.name.toLowerCase().includes(searchTerm.toLowerCase()) || x.email.toLowerCase().includes(searchTerm.toLowerCase()));
-        return p.sort((a, b) => a.name.localeCompare(b.name));
+        
+        const eventId = String(selectedEventForParticipants.id).toLowerCase();
+        let p = state.participants.filter(x => String(x.eventId).toLowerCase() === eventId);
+        
+        if (searchTerm.trim()) {
+            const term = searchTerm.toLowerCase().trim();
+            p = p.filter(x => 
+                (x.name || '').toLowerCase().includes(term) || 
+                (x.email || '').toLowerCase().includes(term)
+            );
+        }
+        
+        return p.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }, [state.participants, selectedEventForParticipants, searchTerm]);
 
-    const paginatedParticipants = useMemo(() => filteredParticipants.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage), [filteredParticipants, currentPage]);
-    const filteredHistory = useMemo(() => selectedEventForParticipants ? state.importHistory.filter(h => String(h.eventId) === String(selectedEventForParticipants.id)) : [], [state.importHistory, selectedEventForParticipants]);
+    const paginatedParticipants = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return filteredParticipants.slice(start, start + itemsPerPage);
+    }, [filteredParticipants, currentPage]);
+
+    const filteredHistory = useMemo(() => 
+        selectedEventForParticipants 
+        ? state.importHistory.filter(h => String(h.eventId) === String(selectedEventForParticipants.id)) 
+        : [], [state.importHistory, selectedEventForParticipants]);
+
+    // Função CRÍTICA: Carregar participantes do evento diretamente da BD para garantir consistência
+    const fetchEventParticipants = async (eventId: string) => {
+        setIsModalLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('participants')
+                .select('*')
+                .eq('event_id', eventId);
+
+            if (error) throw error;
+
+            if (data) {
+                const mapped: Participant[] = data.map(p => ({
+                    id: String(p.id),
+                    name: p.name,
+                    email: String(p.email || '').trim().toLowerCase(),
+                    eventId: String(p.event_id),
+                    categoryId: String(p.category_id),
+                    importId: p.import_id ? String(p.import_id) : undefined,
+                    customVar1: p.custom_var1 || '',
+                    customVar2: p.custom_var2 || '',
+                    customVar3: p.custom_var3 || ''
+                }));
+
+                // Atualizamos o estado global apenas com os novos participantes (evitando duplicados por ID)
+                dispatch({ type: 'ADD_PARTICIPANTS', payload: mapped });
+            }
+        } catch (err) {
+            console.error("Erro ao sincronizar participantes:", err);
+        } finally {
+            setIsModalLoading(false);
+        }
+    };
+
+    const openParticipantModal = async (event: Event) => {
+        // RESET IMEDIATO DE TODOS OS FILTROS
+        setSearchTerm(''); 
+        setCurrentPage(1);
+        setParticipantModalTab('list');
+        setImportFeedback(null);
+        setSelectedEventForParticipants(event);
+        setIsParticipantModalOpen(true);
+        
+        // Sincroniza com a BD para garantir que o Admin vê o mesmo que o utilizador público
+        await fetchEventParticipants(event.id);
+    };
 
     const handleDownload = async (p: Participant) => {
         if (!selectedEventForParticipants) return;
@@ -62,13 +130,13 @@ const Events: React.FC = () => {
         if (!template) {
             template = state.templates.find(t => 
                 String(t.categoryId) === String(p.categoryId) && 
-                (!t.eventId || t.eventId === '')
+                (!t.eventId || t.eventId === '' || t.eventId === 'null')
             );
         }
 
         if (!template) {
             const catName = state.categories.find(c => String(c.id) === String(p.categoryId))?.name || 'esta categoria';
-            return alert(`Nenhum modelo (específico ou global) configurado para a categoria "${catName}".`);
+            return alert(`Erro: Nenhum modelo configurado para "${catName}". Crie um modelo em "Modelos de Certificados".`);
         }
 
         setIsDownloading(p.id);
@@ -77,14 +145,11 @@ const Events: React.FC = () => {
         setTimeout(async () => {
             try {
                 if (!downloadRef.current) return;
-                
                 const imgElement = downloadRef.current.querySelector('img');
-                if (imgElement) {
-                    await imgElement.decode().catch(() => {});
-                }
+                if (imgElement) await imgElement.decode().catch(() => {});
 
                 const canvas = await html2canvas(downloadRef.current, { 
-                    scale: 3.5, 
+                    scale: 3, 
                     useCORS: true, 
                     backgroundColor: '#ffffff',
                     logging: false,
@@ -92,22 +157,22 @@ const Events: React.FC = () => {
                 });
 
                 const imgData = canvas.toDataURL('image/jpeg', 0.95); 
-                
                 const pdf = new jsPDF({ 
                     orientation: 'landscape', 
                     unit: 'px', 
-                    format: [canvas.width, canvas.height],
-                    compress: true
+                    format: [canvas.width, canvas.height]
                 });
 
                 pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height, undefined, 'FAST');
-                pdf.save(`Certificado_${p.name.replace(/\s/g, '_')}.pdf`);
+                pdf.save(`Certificado_${p.name.replace(/[^a-z0-9]/gi, '_')}.pdf`);
             } catch (err) { 
                 console.error("Erro PDF:", err);
                 alert("Erro ao gerar PDF."); 
+            } finally { 
+                setIsDownloading(null); 
+                setTempCert(null); 
             }
-            finally { setIsDownloading(null); setTempCert(null); }
-        }, 1500);
+        }, 1200);
     };
 
     const handleImport = () => {
@@ -118,7 +183,6 @@ const Events: React.FC = () => {
         Papa.parse(csvFile, {
             header: true, 
             skipEmptyLines: 'greedy',
-            // Limpeza agressiva: remove BOM (\ufeff), espaços invisíveis e normaliza para minúsculas
             transformHeader: (header) => header.replace(/[\uFEFF\u200B\u00A0]/g, '').trim().toLowerCase(),
             complete: async (results) => {
                 try {
@@ -126,18 +190,15 @@ const Events: React.FC = () => {
                     const now = new Date().toISOString();
                     
                     const batch = results.data.map((row: any) => {
-                        // Mapeamento flexível para nomes comuns de colunas
                         const name = row.name || row.nome || row.participant_name || row.nome_completo || row.username;
                         const email = row.email || row['e-mail'] || row.email_address || row.correio_eletronico;
-                        
-                        // Mapeamento de variáveis customizadas
                         const custom1 = row.custom1 || row.custom_1 || row.variavel1 || row.variavel_1 || row.titulo || row.work;
                         const custom2 = row.custom2 || row.custom_2 || row.variavel2 || row.variavel_2 || row.autores || row.authors;
                         const custom3 = row.custom3 || row.custom_3 || row.variavel3 || row.variavel_3 || row.instituicao || row.institution;
                         
                         return { 
                             name: name?.trim(), 
-                            email: email?.trim(), 
+                            email: email?.trim()?.toLowerCase(), 
                             event_id: selectedEventForParticipants.id, 
                             category_id: selectedCategory, 
                             import_id: importId,
@@ -148,8 +209,7 @@ const Events: React.FC = () => {
                     }).filter(x => x.name && x.email);
 
                     if (!batch.length) {
-                        const detected = results.meta.fields?.join(', ') || 'Nenhuma';
-                        throw new Error(`Colunas 'name' e 'email' não encontradas. Colunas detetadas: [${detected}]. Verifique se o separador do CSV é vírgula ou ponto-e-vírgula.`);
+                        throw new Error("Colunas 'name' e 'email' não encontradas ou ficheiro vazio.");
                     }
 
                     const { error: hErr } = await supabase.from('import_history').insert({ 
@@ -186,25 +246,26 @@ const Events: React.FC = () => {
                     dispatch({ 
                         type: 'ADD_PARTICIPANTS', 
                         payload: insertedData.map(p => ({ 
-                            id: p.id, 
+                            id: String(p.id), 
                             name: p.name, 
                             email: p.email, 
-                            eventId: p.event_id, 
-                            categoryId: p.category_id, 
-                            importId: p.import_id,
+                            eventId: String(p.event_id), 
+                            categoryId: String(p.category_id), 
+                            importId: String(p.import_id),
                             customVar1: p.custom_var1,
                             customVar2: p.custom_var2,
                             customVar3: p.custom_var3
                         })) 
                     });
 
-                    setImportFeedback({ type: 'success', message: `Sucesso: ${batch.length} participantes importados.` });
+                    setImportFeedback({ type: 'success', message: `${batch.length} participantes importados com sucesso.` });
                     setParticipantModalTab('list');
                     setCsvFile(null);
                 } catch (err: any) { 
-                    setImportFeedback({ type: 'error', message: "Falha na importação: " + err.message }); 
+                    setImportFeedback({ type: 'error', message: "Erro: " + err.message }); 
+                } finally { 
+                    setIsActionLoading(false); 
                 }
-                finally { setIsActionLoading(false); }
             }
         });
     };
@@ -232,12 +293,12 @@ const Events: React.FC = () => {
             dispatch({ 
                 type: 'UPDATE_PARTICIPANT', 
                 payload: {
-                    id: data.id,
+                    id: String(data.id),
                     name: data.name,
                     email: data.email,
-                    eventId: data.event_id,
-                    categoryId: data.category_id,
-                    importId: data.import_id,
+                    eventId: String(data.event_id),
+                    categoryId: String(data.category_id),
+                    importId: String(data.import_id),
                     customVar1: data.custom_var1,
                     customVar2: data.custom_var2,
                     customVar3: data.custom_var3
@@ -245,7 +306,7 @@ const Events: React.FC = () => {
             });
             setIsEditParticipantModalOpen(false);
         } catch (err: any) {
-            alert("Erro ao atualizar participante: " + err.message);
+            alert("Erro ao atualizar: " + err.message);
         } finally {
             setIsActionLoading(false);
         }
@@ -296,7 +357,7 @@ const Events: React.FC = () => {
                             <p className="text-sm text-gray-400 font-medium">{new Date(e.date).toLocaleDateString('pt-PT')}</p>
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={() => { setSelectedEventForParticipants(e); setIsParticipantModalOpen(true); setParticipantModalTab('list'); }} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-brand-700 bg-brand-50 rounded-lg hover:bg-brand-100 transition">
+                            <button onClick={() => openParticipantModal(e)} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-brand-700 bg-brand-50 rounded-lg hover:bg-brand-100 transition">
                                 <Users size={18}/> Participantes
                             </button>
                             <button onClick={() => { setCurrentEvent(e); setEventName(e.name); setEventDate(e.date); setIsEventModalOpen(true); }} className="p-2 text-gray-400 hover:text-brand-600 transition"><Edit size={20}/></button>
@@ -312,7 +373,7 @@ const Events: React.FC = () => {
                         <div className="p-6 bg-gray-50 border-b flex justify-between items-center">
                             <div>
                                 <h3 className="text-xl font-black text-gray-900">{selectedEventForParticipants.name}</h3>
-                                <p className="text-xs text-gray-500 uppercase tracking-widest font-bold">Participantes e Certificados</p>
+                                <p className="text-xs text-gray-500 uppercase tracking-widest font-bold">Painel de Participantes</p>
                             </div>
                             <button onClick={() => setIsParticipantModalOpen(false)} className="p-2 hover:bg-gray-200 rounded-full transition"><X/></button>
                         </div>
@@ -325,129 +386,160 @@ const Events: React.FC = () => {
                             ))}
                         </div>
 
-                        <div className="flex-1 overflow-auto p-6">
-                            {participantModalTab === 'list' && (
-                                <div className="space-y-4">
-                                    <div className="flex flex-col sm:flex-row gap-4 mb-4">
-                                        <div className="relative flex-1">
-                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18}/>
-                                            <input type="text" placeholder="Procurar por nome ou email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-brand-500 transition outline-none" />
+                        <div className="flex-1 overflow-auto p-6 bg-gray-50/30">
+                            {isModalLoading ? (
+                                <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
+                                    <Loader2 className="animate-spin text-brand-500" size={48} />
+                                    <p className="font-black uppercase text-xs tracking-widest">A sincronizar com a Base de Dados...</p>
+                                </div>
+                            ) : (
+                                <>
+                                    {participantModalTab === 'list' && (
+                                        <div className="space-y-4 animate-fadeIn">
+                                            <div className="flex flex-col sm:flex-row gap-4 mb-4">
+                                                <div className="relative flex-1">
+                                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18}/>
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="Procurar participante por nome ou email..." 
+                                                        value={searchTerm} 
+                                                        onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }} 
+                                                        className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 transition outline-none font-bold shadow-sm" 
+                                                    />
+                                                    {searchTerm && (
+                                                        <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
+                                                            <X size={16}/>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <button 
+                                                    onClick={() => fetchEventParticipants(selectedEventForParticipants.id)} 
+                                                    className="flex items-center gap-2 px-4 py-2 text-xs font-black text-brand-600 hover:bg-brand-50 rounded-xl transition uppercase tracking-widest"
+                                                >
+                                                    <RefreshCcw size={14} /> Atualizar
+                                                </button>
+                                            </div>
+                                            
+                                            <div className="border border-gray-100 rounded-2xl overflow-hidden bg-white shadow-xl">
+                                                <table className="w-full text-left">
+                                                    <thead className="bg-gray-50/80 border-b text-[10px] uppercase font-black text-gray-400 tracking-wider">
+                                                        <tr>
+                                                            <th className="px-6 py-4">Nome</th>
+                                                            <th className="px-6 py-4">Email</th>
+                                                            <th className="px-6 py-4">Categoria</th>
+                                                            <th className="px-6 py-4 text-right">Ações</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-100">
+                                                        {paginatedParticipants.map(p => (
+                                                            <tr key={p.id} className="hover:bg-brand-50/30 transition">
+                                                                <td className="px-6 py-4 font-bold text-gray-800">{p.name}</td>
+                                                                <td className="px-6 py-4 text-gray-500 text-sm italic">{p.email}</td>
+                                                                <td className="px-6 py-4">
+                                                                    <span className="px-2 py-1 bg-brand-50 text-brand-700 text-[9px] font-black rounded uppercase border border-brand-100">
+                                                                        {state.categories.find(c => String(c.id).toLowerCase() === String(p.categoryId).toLowerCase())?.name || 'Participante'}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-right flex justify-end gap-1">
+                                                                    <button onClick={() => handleDownload(p)} disabled={isDownloading === p.id} className="p-2 text-brand-600 hover:bg-brand-100 rounded-lg transition" title="Descarregar Certificado">
+                                                                        {isDownloading === p.id ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18}/>}
+                                                                    </button>
+                                                                    <button onClick={() => { 
+                                                                        setEditingParticipant(p); 
+                                                                        setEditName(p.name); 
+                                                                        setEditCategory(String(p.categoryId)); 
+                                                                        setEditVar1(p.customVar1 || '');
+                                                                        setEditVar2(p.customVar2 || '');
+                                                                        setEditVar3(p.customVar3 || '');
+                                                                        setIsEditParticipantModalOpen(true); 
+                                                                    }} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition"><Edit size={18}/></button>
+                                                                    <button onClick={() => setDeleteConfig({ isOpen: true, type: 'participant', id: p.id, title: 'Remover', message: 'Deseja remover este participante da base de dados?' })} className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition"><Trash2 size={18}/></button>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                        {filteredParticipants.length === 0 && (
+                                                            <tr>
+                                                                <td colSpan={4} className="py-24 text-center">
+                                                                    <Search size={48} className="mx-auto text-gray-100 mb-4" />
+                                                                    <p className="text-gray-400 font-black uppercase tracking-widest text-xs">Nenhum participante encontrado.</p>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            
+                                            {filteredParticipants.length > itemsPerPage && (
+                                                <div className="flex justify-between items-center px-4 py-2">
+                                                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Página {currentPage} de {Math.ceil(filteredParticipants.length/itemsPerPage)}</p>
+                                                    <div className="flex gap-2">
+                                                        <button disabled={currentPage === 1} onClick={() => setCurrentPage(c => c-1)} className="p-2 border bg-white rounded-lg disabled:opacity-20 transition shadow-sm hover:border-brand-300"><ChevronLeft size={20}/></button>
+                                                        <button disabled={currentPage * itemsPerPage >= filteredParticipants.length} onClick={() => setCurrentPage(c => c+1)} className="p-2 border bg-white rounded-lg disabled:opacity-20 transition shadow-sm hover:border-brand-300"><ChevronRight size={20}/></button>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
-                                    <div className="border rounded-2xl overflow-hidden bg-white">
-                                        <table className="w-full text-left">
-                                            <thead className="bg-gray-50 border-b text-[10px] uppercase font-black text-gray-400 tracking-wider">
-                                                <tr>
-                                                    <th className="px-6 py-4">Nome</th>
-                                                    <th className="px-6 py-4">Email</th>
-                                                    <th className="px-6 py-4">Categoria</th>
-                                                    <th className="px-6 py-4 text-right">Ações</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-gray-100">
-                                                {paginatedParticipants.map(p => (
-                                                    <tr key={p.id} className="hover:bg-gray-50/50 transition">
-                                                        <td className="px-6 py-4 font-bold text-gray-800">{p.name}</td>
-                                                        <td className="px-6 py-4 text-gray-500 text-sm">{p.email}</td>
-                                                        <td className="px-6 py-4">
-                                                            <span className="px-2 py-1 bg-brand-50 text-brand-700 text-[9px] font-black rounded uppercase border border-brand-100">
-                                                                {state.categories.find(c => String(c.id) === String(p.categoryId))?.name || 'N/A'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 text-right flex justify-end gap-1">
-                                                            <button onClick={() => handleDownload(p)} disabled={isDownloading === p.id} className="p-2 text-brand-600 hover:bg-brand-50 rounded-lg transition" title="Baixar PDF Otimizado">
-                                                                {isDownloading === p.id ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18}/>}
-                                                            </button>
-                                                            <button onClick={() => { 
-                                                                setEditingParticipant(p); 
-                                                                setEditName(p.name); 
-                                                                setEditCategory(String(p.categoryId)); 
-                                                                setEditVar1(p.customVar1 || '');
-                                                                setEditVar2(p.customVar2 || '');
-                                                                setEditVar3(p.customVar3 || '');
-                                                                setIsEditParticipantModalOpen(true); 
-                                                            }} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"><Edit size={18}/></button>
-                                                            <button onClick={() => setDeleteConfig({ isOpen: true, type: 'participant', id: p.id, title: 'Remover', message: 'Deseja remover este participante?' })} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"><Trash2 size={18}/></button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                                {!filteredParticipants.length && <tr><td colSpan={4} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">Nenhum participante encontrado.</td></tr>}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    {filteredParticipants.length > itemsPerPage && (
-                                        <div className="flex justify-between items-center px-2">
-                                            <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Página {currentPage} de {Math.ceil(filteredParticipants.length/itemsPerPage)}</p>
-                                            <div className="flex gap-2">
-                                                <button disabled={currentPage === 1} onClick={() => setCurrentPage(c => c-1)} className="p-2 border rounded-lg disabled:opacity-20 transition"><ChevronLeft size={20}/></button>
-                                                <button disabled={currentPage * itemsPerPage >= filteredParticipants.length} onClick={() => setCurrentPage(c => c+1)} className="p-2 border rounded-lg disabled:opacity-20 transition"><ChevronRight size={20}/></button>
+                                    )}
+
+                                    {participantModalTab === 'import' && (
+                                        <div className="max-w-xl mx-auto py-10 space-y-6 animate-fadeIn">
+                                            {importFeedback && (
+                                                <div className={`p-4 rounded-2xl flex items-center gap-3 border animate-fadeIn ${importFeedback.type === 'success' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
+                                                    {importFeedback.type === 'success' ? <CheckCircle2/> : <AlertTriangle/>}
+                                                    <p className="font-bold text-sm">{importFeedback.message}</p>
+                                                </div>
+                                            )}
+                                            <div className="space-y-4">
+                                                <div className="p-4 bg-brand-50 border border-brand-100 rounded-xl">
+                                                    <p className="text-[10px] font-black uppercase text-brand-700 tracking-wider mb-2">Importação em Lote</p>
+                                                    <p className="text-xs text-brand-800 leading-relaxed font-medium">Assegure-se que o CSV contém colunas <b>name</b> e <b>email</b>.</p>
+                                                </div>
+                                                <label className="block">
+                                                    <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 block">1. Categoria do Lote</span>
+                                                    <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full bg-white border-2 border-gray-100 rounded-xl p-4 focus:border-brand-500 outline-none transition font-bold shadow-sm">
+                                                        <option value="">Escolher Categoria...</option>
+                                                        {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                                    </select>
+                                                </label>
+                                                <label className="block">
+                                                    <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 block">2. Selecionar Ficheiro (.csv)</span>
+                                                    <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-brand-400 transition cursor-pointer relative bg-white group shadow-sm">
+                                                        <input type="file" accept=".csv" onChange={e => setCsvFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                                                        <FileSpreadsheet className="mx-auto text-gray-300 group-hover:text-brand-500 transition mb-2" size={40} />
+                                                        <p className="text-sm font-bold text-gray-600">{csvFile ? csvFile.name : 'Clique ou arraste o seu ficheiro .csv'}</p>
+                                                    </div>
+                                                </label>
+                                                <button onClick={handleImport} disabled={isActionLoading || !csvFile || !selectedCategory} className="w-full bg-brand-600 text-white p-4 rounded-2xl font-black shadow-xl hover:bg-brand-700 transition flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50">
+                                                    {isActionLoading ? <Loader2 className="animate-spin" /> : 'Começar Importação'}
+                                                </button>
                                             </div>
                                         </div>
                                     )}
-                                </div>
-                            )}
 
-                            {participantModalTab === 'import' && (
-                                <div className="max-w-xl mx-auto py-10 space-y-6">
-                                    {importFeedback && (
-                                        <div className={`p-4 rounded-2xl flex items-center gap-3 border animate-fadeIn ${importFeedback.type === 'success' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
-                                            {importFeedback.type === 'success' ? <CheckCircle2/> : <AlertTriangle/>}
-                                            <p className="font-bold text-sm">{importFeedback.message}</p>
+                                    {participantModalTab === 'history' && (
+                                        <div className="space-y-3 animate-fadeIn">
+                                            {filteredHistory.map(h => (
+                                                <div key={h.id} className="bg-white border p-4 rounded-2xl flex justify-between items-center shadow-sm hover:border-brand-300 transition group">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="bg-blue-50 text-blue-600 p-3 rounded-xl group-hover:bg-brand-50 group-hover:text-brand-600 transition"><History size={20}/></div>
+                                                        <div>
+                                                            <p className="font-bold text-gray-800">{h.fileName}</p>
+                                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{new Date(h.date).toLocaleString()} • {h.categoryName}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-6">
+                                                        <div className="text-right">
+                                                            <p className="text-xl font-black text-gray-900">{h.count}</p>
+                                                            <p className="text-[9px] text-gray-400 uppercase font-black">Participantes</p>
+                                                        </div>
+                                                        <button onClick={() => setDeleteConfig({ isOpen: true, type: 'import', id: h.id, title: 'Anular Importação', message: `Isto removerá os ${h.count} participantes importados neste lote.` })} className="p-2 text-gray-300 hover:text-red-500 transition"><Trash2 size={18}/></button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {!filteredHistory.length && <div className="py-24 text-center text-gray-300 font-bold uppercase tracking-widest text-xs">Sem histórico disponível.</div>}
                                         </div>
                                     )}
-                                    <div className="space-y-4">
-                                        <div className="p-4 bg-brand-50 border border-brand-100 rounded-xl">
-                                            <p className="text-[10px] font-black uppercase text-brand-700 tracking-wider mb-2">Dica de Importação</p>
-                                            <p className="text-xs text-brand-800 leading-relaxed font-medium">O seu ficheiro CSV (Excel) pode usar colunas como <b>name</b>, <b>email</b>, <b>custom1</b> e <b>custom2</b>.</p>
-                                        </div>
-                                        <label className="block">
-                                            <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 block">1. Categoria do Lote</span>
-                                            <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full bg-white border-2 border-gray-100 rounded-xl p-3 focus:border-brand-500 outline-none transition font-medium">
-                                                <option value="">Escolher Categoria...</option>
-                                                {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                            </select>
-                                        </label>
-                                        <label className="block">
-                                            <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 block">2. Ficheiro CSV</span>
-                                            <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-brand-400 transition cursor-pointer relative bg-white group">
-                                                <input type="file" accept=".csv" onChange={e => setCsvFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
-                                                <FileSpreadsheet className="mx-auto text-gray-300 group-hover:text-brand-500 transition mb-2" size={40} />
-                                                <p className="text-sm font-bold text-gray-600">{csvFile ? csvFile.name : 'Clique ou arraste o seu ficheiro .csv'}</p>
-                                                <p className="text-[10px] text-gray-400 mt-2 italic font-medium uppercase tracking-widest leading-relaxed">
-                                                    Colunas aceites: 'name', 'email'. <br/>
-                                                    Opcionais: 'custom1', 'custom2', 'custom3'.
-                                                </p>
-                                            </div>
-                                        </label>
-                                        <button onClick={handleImport} disabled={isActionLoading || !csvFile || !selectedCategory} className="w-full bg-brand-600 text-white p-4 rounded-2xl font-black shadow-xl hover:bg-brand-700 transition flex items-center justify-center gap-2">
-                                            {isActionLoading ? <Loader2 className="animate-spin" /> : 'Processar e Importar'}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {participantModalTab === 'history' && (
-                                <div className="space-y-3">
-                                    {filteredHistory.map(h => (
-                                        <div key={h.id} className="bg-white border p-4 rounded-2xl flex justify-between items-center shadow-sm hover:border-brand-300 transition group">
-                                            <div className="flex items-center gap-4">
-                                                <div className="bg-blue-50 text-blue-600 p-3 rounded-xl group-hover:bg-brand-50 group-hover:text-brand-600 transition"><History size={20}/></div>
-                                                <div>
-                                                    <p className="font-bold text-gray-800">{h.fileName}</p>
-                                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{new Date(h.date).toLocaleString()} • {h.categoryName}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-6">
-                                                <div className="text-right">
-                                                    <p className="text-xl font-black text-gray-900">{h.count}</p>
-                                                    <p className="text-[9px] text-gray-400 uppercase font-black">Registos</p>
-                                                </div>
-                                                <button onClick={() => setDeleteConfig({ isOpen: true, type: 'import', id: h.id, title: 'Anular Importação', message: `Remover permanentemente os ${h.count} participantes deste lote?` })} className="p-2 text-gray-300 hover:text-red-500 transition"><Trash2 size={18}/></button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {!filteredHistory.length && <div className="py-20 text-center text-gray-300 font-bold uppercase tracking-widest text-xs">Sem histórico para este evento.</div>}
-                                </div>
+                                </>
                             )}
                         </div>
                     </div>
@@ -456,40 +548,36 @@ const Events: React.FC = () => {
 
             {isEditParticipantModalOpen && editingParticipant && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-                    <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl overflow-y-auto max-h-[90vh]">
+                    <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl overflow-y-auto max-h-[90vh] animate-scaleIn">
                         <h3 className="text-2xl font-black mb-6">Editar Participante</h3>
                         <form onSubmit={handleUpdateParticipant} className="space-y-4">
                             <div>
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Nome Completo</label>
-                                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Nome do Participante</label>
+                                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-4 focus:ring-2 focus:ring-brand-500 font-bold outline-none" />
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Categoria</label>
-                                <select value={editCategory} onChange={e => setEditCategory(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none">
+                                <select value={editCategory} onChange={e => setEditCategory(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-4 focus:ring-2 focus:ring-brand-500 font-bold outline-none">
                                     {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                 </select>
                             </div>
                             
                             <div className="pt-4 border-t space-y-4">
-                                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Variáveis Personalizadas</p>
+                                <p className="text-[10px] font-black text-brand-600 uppercase tracking-widest">Campos Dinâmicos (Opcional)</p>
                                 <div>
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 1 ({'{{CUSTOM_1}}'})</label>
-                                    <input type="text" value={editVar1} onChange={e => setEditVar1(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Título do Trabalho" />
+                                    <label className="text-[9px] font-black text-gray-400 uppercase mb-1 block">Variável 1</label>
+                                    <input type="text" value={editVar1} onChange={e => setEditVar1(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 2 ({'{{CUSTOM_2}}'})</label>
-                                    <input type="text" value={editVar2} onChange={e => setEditVar2(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Autores" />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Variável 3 ({'{{CUSTOM_3}}'})</label>
-                                    <input type="text" value={editVar3} onChange={e => setEditVar3(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" placeholder="Ex: Instituição" />
+                                    <label className="text-[9px] font-black text-gray-400 uppercase mb-1 block">Variável 2</label>
+                                    <input type="text" value={editVar2} onChange={e => setEditVar2(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
                                 </div>
                             </div>
 
-                            <div className="flex gap-2 pt-6">
-                                <button type="button" onClick={() => setIsEditParticipantModalOpen(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Cancelar</button>
-                                <button type="submit" disabled={isActionLoading} className="flex-1 py-3 bg-brand-600 text-white rounded-xl font-black shadow-lg hover:bg-brand-700 transition">
-                                    {isActionLoading ? <Loader2 className="animate-spin mx-auto"/> : 'Guardar Alterações'}
+                            <div className="flex gap-3 pt-6">
+                                <button type="button" onClick={() => setIsEditParticipantModalOpen(false)} className="flex-1 py-4 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Cancelar</button>
+                                <button type="submit" disabled={isActionLoading} className="flex-1 py-4 bg-brand-600 text-white rounded-xl font-black shadow-lg hover:bg-brand-700 transition">
+                                    {isActionLoading ? <Loader2 className="animate-spin mx-auto"/> : 'Atualizar Dados'}
                                 </button>
                             </div>
                         </form>
@@ -499,7 +587,7 @@ const Events: React.FC = () => {
 
             {isEventModalOpen && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl">
+                    <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl animate-scaleIn">
                         <h3 className="text-2xl font-black mb-6">{currentEvent ? 'Editar Evento' : 'Novo Evento'}</h3>
                         <form onSubmit={async (e) => { 
                             e.preventDefault(); 
@@ -516,11 +604,11 @@ const Events: React.FC = () => {
                                 setIsEventModalOpen(false); 
                             } catch(err: any){alert(err.message);} finally {setIsActionLoading(false);} 
                         }} className="space-y-4">
-                            <input type="text" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="Nome do Evento" required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 transition outline-none" />
-                            <input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 transition outline-none" />
-                            <div className="flex gap-2 pt-6">
-                                <button type="button" onClick={() => setIsEventModalOpen(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Cancelar</button>
-                                <button type="submit" className="flex-1 py-3 bg-brand-600 text-white rounded-xl font-black shadow-lg hover:bg-brand-700 transition">Guardar</button>
+                            <input type="text" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="Título do Evento" required className="w-full bg-gray-50 border-none rounded-xl p-4 focus:ring-2 focus:ring-brand-500 font-bold outline-none" />
+                            <input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} required className="w-full bg-gray-50 border-none rounded-xl p-4 focus:ring-2 focus:ring-brand-500 font-bold outline-none text-gray-600" />
+                            <div className="flex gap-3 pt-6">
+                                <button type="button" onClick={() => setIsEventModalOpen(false)} className="flex-1 py-4 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Cancelar</button>
+                                <button type="submit" className="flex-1 py-4 bg-brand-600 text-white rounded-xl font-black shadow-lg hover:bg-brand-700 transition">Guardar Evento</button>
                             </div>
                         </form>
                     </div>
@@ -528,14 +616,14 @@ const Events: React.FC = () => {
             )}
 
             {deleteConfig.isOpen && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
-                    <div className="bg-white rounded-3xl p-8 w-full max-w-sm text-center shadow-2xl">
-                        <div className="bg-red-50 text-red-500 p-4 rounded-full w-fit mx-auto mb-6"><AlertTriangle size={40}/></div>
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4">
+                    <div className="bg-white rounded-3xl p-10 w-full max-w-sm text-center shadow-2xl animate-scaleIn">
+                        <div className="bg-red-50 text-red-500 p-5 rounded-full w-fit mx-auto mb-6"><AlertTriangle size={48}/></div>
                         <h3 className="text-xl font-black text-gray-900">{deleteConfig.title}</h3>
-                        <p className="text-sm text-gray-500 my-4 leading-relaxed">{deleteConfig.message}</p>
-                        <div className="flex gap-3 mt-8">
-                            <button onClick={() => setDeleteConfig({ ...deleteConfig, isOpen: false })} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Não</button>
-                            <button onClick={confirmDeleteAction} disabled={isActionLoading} className="flex-1 py-4 bg-red-600 text-white rounded-xl font-black shadow-lg hover:bg-red-700 transition">Sim, Apagar</button>
+                        <p className="text-sm text-gray-500 my-4 leading-relaxed font-medium">{deleteConfig.message}</p>
+                        <div className="flex gap-4 mt-8">
+                            <button onClick={() => setDeleteConfig({ ...deleteConfig, isOpen: false })} className="flex-1 py-4 bg-gray-100 rounded-2xl font-bold hover:bg-gray-200 transition">Não</button>
+                            <button onClick={confirmDeleteAction} disabled={isActionLoading} className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black shadow-lg hover:bg-red-700 transition">Apagar</button>
                         </div>
                     </div>
                 </div>

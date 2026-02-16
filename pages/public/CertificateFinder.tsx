@@ -2,7 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { Download, Loader2, Search, Award, AlertCircle, Lock, RefreshCw, ChevronRight } from 'lucide-react';
+import { Download, Loader2, Search, Award, AlertCircle, Lock, RefreshCw, ChevronRight, Info } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { supabase } from '../../lib/supabase';
 import type { Certificate, Participant } from '../../types';
@@ -19,14 +19,14 @@ const CertificateFinder: React.FC = () => {
     
     const previewRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
-    // Função auxiliar para normalizar IDs para comparação
-    const norm = (id: any) => String(id || '').trim().toLowerCase();
+    // Normalização rigorosa de strings para comparação
+    const norm = (val: any) => String(val || '').trim().toLowerCase();
 
     const handleSearch = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
         
-        const trimmedEmail = email.trim().toLowerCase();
-        if (!trimmedEmail || !trimmedEmail.includes('@')) {
+        const searchEmail = email.trim();
+        if (!searchEmail || !searchEmail.includes('@')) {
             setError('Por favor, introduza um e-mail válido.');
             return;
         }
@@ -36,15 +36,15 @@ const CertificateFinder: React.FC = () => {
         setSearched(true);
         
         try {
-            // 1. Forçamos a atualização de Eventos, Categorias e Modelos para garantir consistência
+            // 1. Atualizar dados auxiliares (Eventos, Categorias, Modelos) do contexto
             const freshState = await refreshData();
             
-            // 2. BUSCA DIRETA NO SUPABASE PELO EMAIL
-            // Isto ignora qualquer limite local e vai buscar TODOS os registos deste email
+            // 2. BUSCA NO SUPABASE USANDO ILIKE (Insenstivo a maiúsculas)
+            // Usamos ilike direto no campo email da tabela participants
             const { data: dbParticipants, error: dbError } = await supabase
                 .from('participants')
                 .select('*')
-                .eq('email', trimmedEmail);
+                .ilike('email', searchEmail.replace(/[%_]/g, '\\$&')); // Proteção contra wildcards acidentais
 
             if (dbError) throw dbError;
 
@@ -53,51 +53,58 @@ const CertificateFinder: React.FC = () => {
                 return;
             }
 
-            // 3. Mapeamos os resultados da BD com os Eventos e Modelos locais
+            // 3. Mapeamento dos resultados com os dados do sistema
             const certs = dbParticipants.map(p => {
                 const participant: Participant = {
-                    id: norm(p.id),
+                    id: String(p.id),
                     name: p.name,
                     email: norm(p.email),
-                    eventId: norm(p.event_id),
-                    categoryId: norm(p.category_id),
-                    importId: norm(p.import_id),
+                    eventId: String(p.event_id),
+                    categoryId: String(p.category_id),
+                    importId: p.import_id ? String(p.import_id) : undefined,
                     customVar1: p.custom_var1 || '',
                     customVar2: p.custom_var2 || '',
                     customVar3: p.custom_var3 || ''
                 };
 
-                const event = freshState.events.find(e => norm(e.id) === participant.eventId);
+                // Encontra o Evento
+                const event = freshState.events.find(e => norm(e.id) === norm(participant.eventId));
                 
-                // Procura Modelo: Específico do Evento -> Global
+                // Estratégia de Procura de Modelo:
+                // Prioridade 1: Modelo específico para este Evento + esta Categoria
                 let template = freshState.templates.find(t => 
-                    norm(t.categoryId) === participant.categoryId && 
-                    norm(t.eventId) === participant.eventId
+                    norm(t.categoryId) === norm(participant.categoryId) && 
+                    norm(t.eventId) === norm(participant.eventId)
                 );
                 
+                // Prioridade 2: Modelo Global para esta Categoria (sem evento associado)
                 if (!template) {
                     template = freshState.templates.find(t => 
-                        norm(t.categoryId) === participant.categoryId && 
-                        (!t.eventId || t.eventId === '' || t.eventId === 'null')
+                        norm(t.categoryId) === norm(participant.categoryId) && 
+                        (!t.eventId || norm(t.eventId) === '' || norm(t.eventId) === 'null')
                     );
                 }
 
-                if (event && template) {
-                    return { participant, event, template };
+                // Só devolvemos o certificado se o Evento for encontrado.
+                // O modelo pode ser nulo (tratamos no UI).
+                if (event) {
+                    return { participant, event, template: template || null } as any;
                 }
                 return null;
-            }).filter((c): c is Certificate => c !== null);
+            }).filter(c => c !== null);
                 
-            setFoundCertificates(certs);
+            setFoundCertificates(certs as unknown as Certificate[]);
         } catch (err: any) {
             console.error("Erro na busca:", err);
-            setError("Erro ao aceder à base de dados: " + (err.message || "Tente novamente"));
+            setError("Falha na ligação à base de dados. Tente novamente.");
         } finally {
             setIsLoading(false);
         }
     };
 
     const handleDownload = async (cert: Certificate) => {
+        if (!cert.template) return;
+
         const key = `${cert.participant.id}-${cert.event.id}`;
         const element = previewRefs.current[key];
         if (!element) return;
@@ -121,10 +128,10 @@ const CertificateFinder: React.FC = () => {
                 const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [canvas.width, canvas.height] });
 
                 pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height, undefined, 'FAST');
-                pdf.save(`Certificado_${cert.participant.name.replace(/\s/g, '_')}.pdf`);
+                pdf.save(`Certificado_${cert.participant.name.replace(/[^a-z0-9]/gi, '_')}.pdf`);
             } catch (err) {
                 console.error(err);
-                alert("Erro ao gerar o PDF. Tente novamente.");
+                alert("Erro ao gerar o PDF. Contacte o suporte.");
             } finally {
                 setIsDownloading(null);
             }
@@ -143,10 +150,10 @@ const CertificateFinder: React.FC = () => {
                         <div className="relative flex-1 group">
                             <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-brand-500 transition-colors" size={20} />
                             <input 
-                                type="email" 
+                                type="text" 
                                 value={email} 
                                 onChange={e => setEmail(e.target.value)} 
-                                placeholder="exemplo@email.com" 
+                                placeholder="Insira o seu e-mail" 
                                 required 
                                 className="w-full pl-12 pr-6 py-4 border-2 border-gray-100 rounded-2xl outline-none focus:border-brand-500 focus:ring-8 focus:ring-brand-500/5 transition-all shadow-sm bg-white font-bold text-gray-800" 
                             />
@@ -163,7 +170,7 @@ const CertificateFinder: React.FC = () => {
                         <div className="flex justify-between items-end px-4">
                             <div>
                                 <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Resultados da Pesquisa</h2>
-                                <p className="text-xl font-black text-gray-900 mt-1">{foundCertificates.length} Certificado(s) pronto(s)</p>
+                                <p className="text-xl font-black text-gray-900 mt-1">{foundCertificates.length} Registos(s) encontrado(s)</p>
                             </div>
                             <button 
                                 onClick={() => handleSearch()} 
@@ -175,13 +182,13 @@ const CertificateFinder: React.FC = () => {
                         
                         <div className="grid gap-4">
                             {foundCertificates.map((cert) => {
-                                // O segredo para exibir múltiplos é usar o participant.id único como parte da chave
                                 const key = `${cert.participant.id}-${cert.event.id}`;
-                                const category = state.categories.find(c => norm(c.id) === cert.participant.categoryId);
+                                const category = state.categories.find(c => norm(c.id) === norm(cert.participant.categoryId));
+                                const hasTemplate = !!cert.template;
                                 
                                 return (
                                     <div key={key} className="bg-white p-6 md:p-8 rounded-[2rem] shadow-xl hover:shadow-2xl flex flex-col sm:flex-row justify-between items-center gap-6 border border-gray-100 hover:border-brand-200 transition-all group relative overflow-hidden">
-                                        <div className="absolute top-0 left-0 w-2 h-full bg-brand-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        <div className={`absolute top-0 left-0 w-2 h-full ${hasTemplate ? 'bg-brand-500' : 'bg-amber-400'} opacity-0 group-hover:opacity-100 transition-opacity`} />
                                         
                                         <div className="text-center sm:text-left flex-1 min-w-0">
                                             <div className="flex flex-wrap justify-center sm:justify-start gap-2 mb-3">
@@ -201,17 +208,24 @@ const CertificateFinder: React.FC = () => {
                                             )}
                                         </div>
 
-                                        <button 
-                                            onClick={() => handleDownload(cert)} 
-                                            disabled={isDownloading === key} 
-                                            className="w-full sm:w-auto bg-gray-900 text-white px-8 py-5 rounded-[1.25rem] flex items-center justify-center gap-3 font-black hover:bg-brand-600 transition-all shadow-xl hover:shadow-brand-500/30 active:scale-95 disabled:opacity-50 group/btn"
-                                        >
-                                            {isDownloading === key ? (
-                                                <><Loader2 size={22} className="animate-spin" /><span>A Gerar...</span></>
-                                            ) : (
-                                                <><Download size={22} className="group-hover/btn:-translate-y-1 transition-transform" /><span>Download</span></>
-                                            )}
-                                        </button>
+                                        {hasTemplate ? (
+                                            <button 
+                                                onClick={() => handleDownload(cert)} 
+                                                disabled={isDownloading === key} 
+                                                className="w-full sm:w-auto bg-gray-900 text-white px-8 py-5 rounded-[1.25rem] flex items-center justify-center gap-3 font-black hover:bg-brand-600 transition-all shadow-xl hover:shadow-brand-500/30 active:scale-95 disabled:opacity-50 group/btn"
+                                            >
+                                                {isDownloading === key ? (
+                                                    <><Loader2 size={22} className="animate-spin" /><span>A Gerar...</span></>
+                                                ) : (
+                                                    <><Download size={22} className="group-hover/btn:-translate-y-1 transition-transform" /><span>Download</span></>
+                                                )}
+                                            </button>
+                                        ) : (
+                                            <div className="flex items-center gap-2 text-amber-600 bg-amber-50 px-5 py-4 rounded-2xl border border-amber-100 text-sm font-bold animate-pulse">
+                                                <Info size={18} />
+                                                <span>Brevemente disponível</span>
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -220,9 +234,9 @@ const CertificateFinder: React.FC = () => {
                         {foundCertificates.length === 0 && (
                             <div className="bg-white/50 backdrop-blur-sm p-16 rounded-[2.5rem] text-center shadow-inner border-2 border-dashed border-gray-200">
                                 <Award size={64} className="mx-auto text-gray-200 mb-6" />
-                                <p className="text-gray-600 text-xl font-black">Certificados não encontrados</p>
+                                <p className="text-gray-600 text-xl font-black">Nenhum registo disponível</p>
                                 <p className="text-sm text-gray-400 mt-3 leading-relaxed max-w-sm mx-auto font-medium">
-                                    Verifique se o e-mail está correto ou se a organização já disponibilizou o seu modelo de certificado.
+                                    Não encontrámos certificados associados a este e-mail. Verifique se os dados estão corretos ou contacte a organização do evento.
                                 </p>
                             </div>
                         )}
@@ -230,10 +244,10 @@ const CertificateFinder: React.FC = () => {
                 )}
             </div>
 
-            {/* Renderização invisível para PDF */}
             <div className="absolute" style={{ top: '-20000px', left: '-20000px', pointerEvents: 'none', width: '1123px' }}>
                 {foundCertificates.map(cert => {
                      const key = `${cert.participant.id}-${cert.event.id}`;
+                     if (!cert.template) return null;
                     return <div key={key} ref={el => { previewRefs.current[key] = el; }}><CertificatePreview certificate={cert} /></div>
                 })}
             </div>
