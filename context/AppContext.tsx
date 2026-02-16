@@ -102,7 +102,16 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case 'ADD_TEMPLATE': return { ...state, templates: [...state.templates, action.payload] };
         case 'UPDATE_TEMPLATE': return { ...state, templates: state.templates.map(t => normId(t.id) === normId(action.payload.id) ? action.payload : t) };
         case 'DELETE_TEMPLATE': return { ...state, templates: state.templates.filter(t => normId(t.id) !== normId(action.payload)) };
-        case 'ADD_PARTICIPANTS': return { ...state, participants: [...state.participants, ...action.payload] };
+        case 'ADD_PARTICIPANTS': {
+            // SMART MERGE: Evita duplicados verificando o ID único de cada participante
+            const newParticipants = action.payload;
+            const newIds = new Set(newParticipants.map(p => normId(p.id)));
+            const filteredExisting = state.participants.filter(p => !newIds.has(normId(p.id)));
+            return { 
+                ...state, 
+                participants: [...filteredExisting, ...newParticipants] 
+            };
+        }
         case 'UPDATE_PARTICIPANT': return { ...state, participants: state.participants.map(p => normId(p.id) === normId(action.payload.id) ? action.payload : p) };
         case 'DELETE_PARTICIPANT': return { ...state, participants: state.participants.filter(p => normId(p.id) !== normId(action.payload)) };
         case 'ADD_IMPORT_HISTORY': return { ...state, importHistory: [...state.importHistory, action.payload] };
@@ -136,7 +145,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const { data: { session } } = await supabase.auth.getSession();
             const { data: settings } = await supabase.from('app_settings').select('*').maybeSingle();
             
-            // AUMENTADO O LIMITE PARA 10.000 EM TODAS AS QUERIES
             const [eventsRes, categoriesRes, templatesRes, participantsRes, historyRes] = await Promise.all([
                 supabase.from('events').select('*').limit(10000),
                 supabase.from('categories').select('*').order('name').limit(10000),
