@@ -6,7 +6,7 @@ import html2canvas from 'html2canvas';
 import { useAppContext } from '../../context/AppContext';
 import { supabase } from '../../lib/supabase';
 import type { Event, Participant, Certificate, Template, ImportRecord } from '../../types';
-import { Plus, Edit, Users, X, Loader2, Trash2, History, FileSpreadsheet, CheckCircle2, FileDown, AlertTriangle, ChevronLeft, ChevronRight, Search, RefreshCcw } from 'lucide-react';
+import { Plus, Edit, Users, X, Loader2, Trash2, History, FileSpreadsheet, CheckCircle2, FileDown, AlertTriangle, ChevronLeft, ChevronRight, Search, RefreshCcw, Eye } from 'lucide-react';
 import CertificatePreview from '../../components/CertificatePreview';
 
 const Events: React.FC = () => {
@@ -14,6 +14,7 @@ const Events: React.FC = () => {
     const [isEventModalOpen, setIsEventModalOpen] = useState(false);
     const [isParticipantModalOpen, setIsParticipantModalOpen] = useState(false);
     const [isEditParticipantModalOpen, setIsEditParticipantModalOpen] = useState(false);
+    const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isModalLoading, setIsModalLoading] = useState(false);
     
@@ -39,12 +40,13 @@ const Events: React.FC = () => {
 
     const [isDownloading, setIsDownloading] = useState<string | null>(null);
     const [tempCert, setTempCert] = useState<Certificate | null>(null);
+    const [previewCert, setPreviewCert] = useState<Certificate | null>(null);
     const downloadRef = useRef<HTMLDivElement>(null);
 
     // Lista de eventos ordenada por data
     const sortedEvents = useMemo(() => [...state.events].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [state.events]);
 
-    // Filtro local de participantes (após garantir que o estado local está sincronizado com a BD)
+    // Filtro local de participantes
     const filteredParticipants = useMemo(() => {
         if (!selectedEventForParticipants) return [];
         
@@ -72,7 +74,6 @@ const Events: React.FC = () => {
         ? state.importHistory.filter(h => String(h.eventId) === String(selectedEventForParticipants.id)) 
         : [], [state.importHistory, selectedEventForParticipants]);
 
-    // Função CRÍTICA: Carregar participantes do evento diretamente da BD para garantir consistência
     const fetchEventParticipants = async (eventId: string) => {
         setIsModalLoading(true);
         try {
@@ -95,8 +96,6 @@ const Events: React.FC = () => {
                     customVar2: p.custom_var2 || '',
                     customVar3: p.custom_var3 || ''
                 }));
-
-                // Atualizamos o estado global apenas com os novos participantes (evitando duplicados por ID)
                 dispatch({ type: 'ADD_PARTICIPANTS', payload: mapped });
             }
         } catch (err) {
@@ -107,21 +106,17 @@ const Events: React.FC = () => {
     };
 
     const openParticipantModal = async (event: Event) => {
-        // RESET IMEDIATO DE TODOS OS FILTROS
         setSearchTerm(''); 
         setCurrentPage(1);
         setParticipantModalTab('list');
         setImportFeedback(null);
         setSelectedEventForParticipants(event);
         setIsParticipantModalOpen(true);
-        
-        // Sincroniza com a BD para garantir que o Admin vê o mesmo que o utilizador público
         await fetchEventParticipants(event.id);
     };
 
-    const handleDownload = async (p: Participant) => {
-        if (!selectedEventForParticipants) return;
-        
+    // Helper para encontrar o modelo correto
+    const findTemplateForParticipant = (p: Participant) => {
         let template = state.templates.find(t => 
             String(t.categoryId) === String(p.categoryId) && 
             String(t.eventId) === String(p.eventId)
@@ -133,10 +128,27 @@ const Events: React.FC = () => {
                 (!t.eventId || t.eventId === '' || t.eventId === 'null')
             );
         }
+        return template;
+    };
+
+    const handlePreview = (p: Participant) => {
+        if (!selectedEventForParticipants) return;
+        const template = findTemplateForParticipant(p);
+        if (!template) {
+            const catName = state.categories.find(c => String(c.id) === String(p.categoryId))?.name || 'esta categoria';
+            return alert(`Nenhum modelo configurado para "${catName}".`);
+        }
+        setPreviewCert({ participant: p, event: selectedEventForParticipants, template });
+        setIsPreviewModalOpen(true);
+    };
+
+    const handleDownload = async (p: Participant) => {
+        if (!selectedEventForParticipants) return;
+        const template = findTemplateForParticipant(p);
 
         if (!template) {
             const catName = state.categories.find(c => String(c.id) === String(p.categoryId))?.name || 'esta categoria';
-            return alert(`Erro: Nenhum modelo configurado para "${catName}". Crie um modelo em "Modelos de Certificados".`);
+            return alert(`Erro: Nenhum modelo configurado para "${catName}".`);
         }
 
         setIsDownloading(p.id);
@@ -208,64 +220,33 @@ const Events: React.FC = () => {
                         };
                     }).filter(x => x.name && x.email);
 
-                    if (!batch.length) {
-                        throw new Error("Colunas 'name' e 'email' não encontradas ou ficheiro vazio.");
-                    }
+                    if (!batch.length) throw new Error("Colunas 'name' e 'email' não encontradas ou ficheiro vazio.");
 
                     const { error: hErr } = await supabase.from('import_history').insert({ 
-                        id: importId, 
-                        file_name: csvFile.name, 
-                        count: batch.length, 
-                        event_id: selectedEventForParticipants.id, 
-                        category_name: cat?.name || 'N/A', 
-                        status: 'success', 
-                        created_at: now 
+                        id: importId, file_name: csvFile.name, count: batch.length, event_id: selectedEventForParticipants.id, 
+                        category_name: cat?.name || 'N/A', status: 'success', created_at: now 
                     });
                     if (hErr) throw hErr;
 
-                    const { data: insertedData, error: pErr } = await supabase
-                        .from('participants')
-                        .insert(batch)
-                        .select();
-
+                    const { data: insertedData, error: pErr } = await supabase.from('participants').insert(batch).select();
                     if (pErr) throw pErr;
 
-                    dispatch({ 
-                        type: 'ADD_IMPORT_HISTORY', 
-                        payload: { 
-                            id: importId, 
-                            date: now, 
-                            fileName: csvFile.name, 
-                            count: batch.length, 
-                            eventId: selectedEventForParticipants.id, 
-                            categoryName: cat?.name || 'N/A', 
-                            status: 'success' 
-                        } 
-                    });
+                    dispatch({ type: 'ADD_IMPORT_HISTORY', payload: { 
+                        id: importId, date: now, fileName: csvFile.name, count: batch.length, 
+                        eventId: selectedEventForParticipants.id, categoryName: cat?.name || 'N/A', status: 'success' 
+                    } });
                     
-                    dispatch({ 
-                        type: 'ADD_PARTICIPANTS', 
-                        payload: insertedData.map(p => ({ 
-                            id: String(p.id), 
-                            name: p.name, 
-                            email: p.email, 
-                            eventId: String(p.event_id), 
-                            categoryId: String(p.category_id), 
-                            importId: String(p.import_id),
-                            customVar1: p.custom_var1,
-                            customVar2: p.custom_var2,
-                            customVar3: p.custom_var3
-                        })) 
-                    });
+                    dispatch({ type: 'ADD_PARTICIPANTS', payload: insertedData.map(p => ({ 
+                        id: String(p.id), name: p.name, email: p.email, eventId: String(p.event_id), 
+                        categoryId: String(p.category_id), importId: String(p.import_id),
+                        customVar1: p.custom_var1, customVar2: p.custom_var2, customVar3: p.custom_var3
+                    })) });
 
                     setImportFeedback({ type: 'success', message: `${batch.length} participantes importados com sucesso.` });
                     setParticipantModalTab('list');
                     setCsvFile(null);
-                } catch (err: any) { 
-                    setImportFeedback({ type: 'error', message: "Erro: " + err.message }); 
-                } finally { 
-                    setIsActionLoading(false); 
-                }
+                } catch (err: any) { setImportFeedback({ type: 'error', message: "Erro: " + err.message }); }
+                finally { setIsActionLoading(false); }
             }
         });
     };
@@ -275,41 +256,20 @@ const Events: React.FC = () => {
         if (!editingParticipant) return;
         setIsActionLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('participants')
-                .update({ 
-                    name: editName, 
-                    category_id: editCategory,
-                    custom_var1: editVar1,
-                    custom_var2: editVar2,
-                    custom_var3: editVar3
-                })
-                .eq('id', editingParticipant.id)
-                .select()
-                .single();
+            const { data, error } = await supabase.from('participants').update({ 
+                name: editName, category_id: editCategory, custom_var1: editVar1, custom_var2: editVar2, custom_var3: editVar3
+            }).eq('id', editingParticipant.id).select().single();
 
             if (error) throw error;
 
-            dispatch({ 
-                type: 'UPDATE_PARTICIPANT', 
-                payload: {
-                    id: String(data.id),
-                    name: data.name,
-                    email: data.email,
-                    eventId: String(data.event_id),
-                    categoryId: String(data.category_id),
-                    importId: String(data.import_id),
-                    customVar1: data.custom_var1,
-                    customVar2: data.custom_var2,
-                    customVar3: data.custom_var3
-                } 
-            });
+            dispatch({ type: 'UPDATE_PARTICIPANT', payload: {
+                id: String(data.id), name: data.name, email: data.email, eventId: String(data.event_id),
+                categoryId: String(data.category_id), importId: String(data.import_id),
+                customVar1: data.custom_var1, customVar2: data.custom_var2, customVar3: data.custom_var3
+            } });
             setIsEditParticipantModalOpen(false);
-        } catch (err: any) {
-            alert("Erro ao atualizar: " + err.message);
-        } finally {
-            setIsActionLoading(false);
-        }
+        } catch (err: any) { alert("Erro ao atualizar: " + err.message); }
+        finally { setIsActionLoading(false); }
     };
 
     const confirmDeleteAction = async () => {
@@ -333,11 +293,8 @@ const Events: React.FC = () => {
                 dispatch({ type: 'DELETE_IMPORT', payload: id });
             }
             setDeleteConfig({ ...deleteConfig, isOpen: false });
-        } catch (err: any) {
-            alert("Erro ao apagar: " + err.message);
-        } finally {
-            setIsActionLoading(false);
-        }
+        } catch (err: any) { alert("Erro ao apagar: " + err.message); }
+        finally { setIsActionLoading(false); }
     };
 
     return (
@@ -406,16 +363,8 @@ const Events: React.FC = () => {
                                                         onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }} 
                                                         className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 transition outline-none font-bold shadow-sm" 
                                                     />
-                                                    {searchTerm && (
-                                                        <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
-                                                            <X size={16}/>
-                                                        </button>
-                                                    )}
                                                 </div>
-                                                <button 
-                                                    onClick={() => fetchEventParticipants(selectedEventForParticipants.id)} 
-                                                    className="flex items-center gap-2 px-4 py-2 text-xs font-black text-brand-600 hover:bg-brand-50 rounded-xl transition uppercase tracking-widest"
-                                                >
+                                                <button onClick={() => fetchEventParticipants(selectedEventForParticipants.id)} className="flex items-center gap-2 px-4 py-2 text-xs font-black text-brand-600 hover:bg-brand-50 rounded-xl transition uppercase tracking-widest">
                                                     <RefreshCcw size={14} /> Atualizar
                                                 </button>
                                             </div>
@@ -441,29 +390,23 @@ const Events: React.FC = () => {
                                                                     </span>
                                                                 </td>
                                                                 <td className="px-6 py-4 text-right flex justify-end gap-1">
+                                                                    <button onClick={() => handlePreview(p)} className="p-2 text-indigo-600 hover:bg-indigo-100 rounded-lg transition" title="Pré-visualizar">
+                                                                        <Eye size={18}/>
+                                                                    </button>
                                                                     <button onClick={() => handleDownload(p)} disabled={isDownloading === p.id} className="p-2 text-brand-600 hover:bg-brand-100 rounded-lg transition" title="Descarregar Certificado">
                                                                         {isDownloading === p.id ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18}/>}
                                                                     </button>
                                                                     <button onClick={() => { 
-                                                                        setEditingParticipant(p); 
-                                                                        setEditName(p.name); 
-                                                                        setEditCategory(String(p.categoryId)); 
-                                                                        setEditVar1(p.customVar1 || '');
-                                                                        setEditVar2(p.customVar2 || '');
-                                                                        setEditVar3(p.customVar3 || '');
+                                                                        setEditingParticipant(p); setEditName(p.name); setEditCategory(String(p.categoryId)); 
+                                                                        setEditVar1(p.customVar1 || ''); setEditVar2(p.customVar2 || ''); setEditVar3(p.customVar3 || '');
                                                                         setIsEditParticipantModalOpen(true); 
                                                                     }} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition"><Edit size={18}/></button>
-                                                                    <button onClick={() => setDeleteConfig({ isOpen: true, type: 'participant', id: p.id, title: 'Remover', message: 'Deseja remover este participante da base de dados?' })} className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition"><Trash2 size={18}/></button>
+                                                                    <button onClick={() => setDeleteConfig({ isOpen: true, type: 'participant', id: p.id, title: 'Remover', message: 'Deseja remover este participante?' })} className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition"><Trash2 size={18}/></button>
                                                                 </td>
                                                             </tr>
                                                         ))}
                                                         {filteredParticipants.length === 0 && (
-                                                            <tr>
-                                                                <td colSpan={4} className="py-24 text-center">
-                                                                    <Search size={48} className="mx-auto text-gray-100 mb-4" />
-                                                                    <p className="text-gray-400 font-black uppercase tracking-widest text-xs">Nenhum participante encontrado.</p>
-                                                                </td>
-                                                            </tr>
+                                                            <tr><td colSpan={4} className="py-24 text-center text-gray-400 font-black uppercase tracking-widest text-xs">Nenhum participante encontrado.</td></tr>
                                                         )}
                                                     </tbody>
                                                 </table>
@@ -490,10 +433,6 @@ const Events: React.FC = () => {
                                                 </div>
                                             )}
                                             <div className="space-y-4">
-                                                <div className="p-4 bg-brand-50 border border-brand-100 rounded-xl">
-                                                    <p className="text-[10px] font-black uppercase text-brand-700 tracking-wider mb-2">Importação em Lote</p>
-                                                    <p className="text-xs text-brand-800 leading-relaxed font-medium">Assegure-se que o CSV contém colunas <b>name</b> e <b>email</b>.</p>
-                                                </div>
                                                 <label className="block">
                                                     <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 block">1. Categoria do Lote</span>
                                                     <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full bg-white border-2 border-gray-100 rounded-xl p-4 focus:border-brand-500 outline-none transition font-bold shadow-sm">
@@ -527,8 +466,8 @@ const Events: React.FC = () => {
                                                             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{new Date(h.date).toLocaleString()} • {h.categoryName}</p>
                                                         </div>
                                                     </div>
-                                                    <div className="flex items-center gap-6">
-                                                        <div className="text-right">
+                                                    <div className="flex items-center gap-6 text-right">
+                                                        <div>
                                                             <p className="text-xl font-black text-gray-900">{h.count}</p>
                                                             <p className="text-[9px] text-gray-400 uppercase font-black">Participantes</p>
                                                         </div>
@@ -542,6 +481,18 @@ const Events: React.FC = () => {
                                 </>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Pré-visualização de Certificado */}
+            {isPreviewModalOpen && previewCert && (
+                <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[100] p-4 backdrop-blur-xl" onClick={() => setIsPreviewModalOpen(false)}>
+                    <div className="bg-white rounded-[2rem] shadow-2xl p-4 origin-center transform scale-[0.35] sm:scale-[0.55] md:scale-[0.75] lg:scale-[0.85] animate-scaleIn border-8 border-white/20" onClick={e => e.stopPropagation()}>
+                        <CertificatePreview certificate={previewCert} />
+                        <button onClick={() => setIsPreviewModalOpen(false)} className="absolute -top-16 -right-16 p-5 bg-white rounded-full shadow-2xl text-gray-900 hover:text-red-600 transition hover:rotate-90">
+                            <X size={32}/>
+                        </button>
                     </div>
                 </div>
             )}
@@ -561,19 +512,6 @@ const Events: React.FC = () => {
                                     {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                 </select>
                             </div>
-                            
-                            <div className="pt-4 border-t space-y-4">
-                                <p className="text-[10px] font-black text-brand-600 uppercase tracking-widest">Campos Dinâmicos (Opcional)</p>
-                                <div>
-                                    <label className="text-[9px] font-black text-gray-400 uppercase mb-1 block">Variável 1</label>
-                                    <input type="text" value={editVar1} onChange={e => setEditVar1(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
-                                </div>
-                                <div>
-                                    <label className="text-[9px] font-black text-gray-400 uppercase mb-1 block">Variável 2</label>
-                                    <input type="text" value={editVar2} onChange={e => setEditVar2(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-500 font-medium outline-none" />
-                                </div>
-                            </div>
-
                             <div className="flex gap-3 pt-6">
                                 <button type="button" onClick={() => setIsEditParticipantModalOpen(false)} className="flex-1 py-4 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition">Cancelar</button>
                                 <button type="submit" disabled={isActionLoading} className="flex-1 py-4 bg-brand-600 text-white rounded-xl font-black shadow-lg hover:bg-brand-700 transition">
@@ -593,11 +531,7 @@ const Events: React.FC = () => {
                             e.preventDefault(); 
                             setIsActionLoading(true); 
                             try { 
-                                const ev = { 
-                                    ...(currentEvent?.id ? { id: currentEvent.id } : {}), 
-                                    name: eventName, 
-                                    date: eventDate 
-                                }; 
+                                const ev = { ...(currentEvent?.id ? { id: currentEvent.id } : {}), name: eventName, date: eventDate }; 
                                 const { data, error } = await supabase.from('events').upsert(ev).select().single(); 
                                 if (error) throw error; 
                                 currentEvent ? dispatch({ type: 'UPDATE_EVENT', payload: data }) : dispatch({ type: 'ADD_EVENT', payload: data }); 
