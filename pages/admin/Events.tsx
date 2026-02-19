@@ -51,8 +51,8 @@ const Events: React.FC = () => {
     const [previewCert, setPreviewCert] = useState<Certificate | null>(null);
     const downloadRef = useRef<HTMLDivElement>(null);
 
-    // Lista de eventos ordenada por data
-    const sortedEvents = useMemo(() => [...state.events].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [state.events]);
+    // Lista de eventos ordenada por ordem alfabética (nome)
+    const sortedEvents = useMemo(() => [...state.events].sort((a, b) => a.name.localeCompare(b.name)), [state.events]);
 
     // Filtro local de participantes
     const filteredParticipants = useMemo(() => {

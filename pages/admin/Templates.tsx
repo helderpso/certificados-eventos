@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { supabase } from '../../lib/supabase';
 import type { Category, Template } from '../../types';
@@ -22,7 +22,7 @@ const Templates: React.FC = () => {
     
     const [templateName, setTemplateName] = useState('');
     const [templateCategory, setTemplateCategory] = useState('');
-    const [templateEvent, setTemplateEvent] = useState(''); // NOVO CAMPO
+    const [templateEvent, setTemplateEvent] = useState(''); 
     const [templateImage, setTemplateImage] = useState<string>('');
     const [templateText, setTemplateText] = useState('<div style="text-align: center;"><font size="5">Certificamos que</font></div><div style="text-align: center;"><font size="7"><b>{{PARTICIPANT_NAME}}</b></font></div><div style="text-align: center;"><font size="4">participou no evento.</font></div>');
 
@@ -42,6 +42,11 @@ const Templates: React.FC = () => {
         title: '',
         message: ''
     });
+
+    // Ordenação alfabética de modelos
+    const sortedTemplates = useMemo(() => {
+        return [...state.templates].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }, [state.templates]);
 
     const AVAILABLE_VARIABLES = [
         '{{PARTICIPANT_NAME}}', 
@@ -102,7 +107,7 @@ const Templates: React.FC = () => {
                 ...(currentTemplate?.id ? { id: currentTemplate.id } : {}),
                 name: templateName,
                 category_id: templateCategory,
-                event_id: templateEvent || null, // ASSOCIAÇÃO COM EVENTO
+                event_id: templateEvent || null, 
                 background_image: templateImage,
                 text_content: templateText
             };
@@ -204,8 +209,8 @@ const Templates: React.FC = () => {
                 </div>
                 {successMessage && <div className="mb-4 p-4 bg-green-50 border border-green-200 text-green-700 rounded-2xl flex items-center gap-2 animate-fadeIn font-bold shadow-sm"><CheckCircle size={20}/>{successMessage}</div>}
                 <div className="grid gap-4">
-                    {state.templates.length > 0 ? (
-                        state.templates.map(tpl => {
+                    {sortedTemplates.length > 0 ? (
+                        sortedTemplates.map(tpl => {
                             const category = state.categories.find(c => String(c.id) === String(tpl.categoryId));
                             const event = state.events.find(e => String(e.id) === String(tpl.eventId));
                             return (
