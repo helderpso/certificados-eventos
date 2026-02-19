@@ -6,7 +6,7 @@ import html2canvas from 'html2canvas';
 import { useAppContext } from '../../context/AppContext';
 import { supabase } from '../../lib/supabase';
 import type { Event, Participant, Certificate, Template, ImportRecord } from '../../types';
-import { Plus, Edit, Users, X, Loader2, Trash2, History, FileSpreadsheet, CheckCircle2, FileDown, AlertTriangle, ChevronLeft, ChevronRight, Search, RefreshCcw, Eye, UserPlus } from 'lucide-react';
+import { Plus, Edit, Users, X, Loader2, Trash2, History, FileSpreadsheet, CheckCircle2, FileDown, AlertTriangle, ChevronLeft, ChevronRight, Search, RefreshCcw, Eye, UserPlus, Download } from 'lucide-react';
 import CertificatePreview from '../../components/CertificatePreview';
 
 const Events: React.FC = () => {
@@ -81,6 +81,38 @@ const Events: React.FC = () => {
         selectedEventForParticipants 
         ? state.importHistory.filter(h => String(h.eventId) === String(selectedEventForParticipants.id)) 
         : [], [state.importHistory, selectedEventForParticipants]);
+
+    const handleExportCSV = () => {
+        if (!selectedEventForParticipants || filteredParticipants.length === 0) return;
+
+        const dataToExport = filteredParticipants.map(p => {
+            const category = state.categories.find(c => String(c.id).toLowerCase() === String(p.categoryId).toLowerCase());
+            return {
+                'Nome': p.name,
+                'Email': p.email,
+                'Categoria': category?.name || 'N/A',
+                'Evento': selectedEventForParticipants.name,
+                'Variavel 1': p.customVar1 || '',
+                'Variavel 2': p.customVar2 || '',
+                'Variavel 3': p.customVar3 || ''
+            };
+        });
+
+        const csv = Papa.unparse(dataToExport, {
+            delimiter: ";", // CSV semi-colon is more common for European Excel versions
+        });
+        
+        // Add UTF-8 BOM for Excel compatibility
+        const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `Participantes_${selectedEventForParticipants.name.replace(/\s+/g, '_')}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     const fetchEventParticipants = async (eventId: string) => {
         setIsModalLoading(true);
@@ -419,6 +451,9 @@ const Events: React.FC = () => {
                                                 <div className="flex gap-2 w-full sm:w-auto">
                                                     <button onClick={() => setIsAddParticipantModalOpen(true)} className="flex items-center justify-center gap-2 px-4 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg hover:bg-brand-700 transition flex-1 sm:flex-none">
                                                         <UserPlus size={18}/> Novo Participante
+                                                    </button>
+                                                    <button onClick={handleExportCSV} disabled={filteredParticipants.length === 0} className="flex items-center justify-center gap-2 px-4 py-3 bg-white text-gray-700 border border-gray-200 rounded-xl font-bold shadow-sm hover:bg-gray-50 transition flex-1 sm:flex-none disabled:opacity-50">
+                                                        <FileSpreadsheet size={18} className="text-green-600" /> Exportar Excel
                                                     </button>
                                                     <button onClick={() => fetchEventParticipants(selectedEventForParticipants.id)} className="p-3 text-brand-600 hover:bg-brand-50 rounded-xl transition border border-brand-100">
                                                         <RefreshCcw size={18} />
